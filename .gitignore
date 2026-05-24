@@ -1,0 +1,38 @@
+node_modules/
+.next/
+dist/
+build/
+*.local
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# DB
+*.db
+*.db-journal
+
+# Sessions (NEVER commit)
+sessions/
+cookies/
+*.session.json
+
+# Captured requests (có chứa cookie)
+scripts/intercept/captured_requests.json
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

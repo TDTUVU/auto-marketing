@@ -1,0 +1,22 @@
+{
+  "name": "social-automation",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test:post": "tsx scripts/test_post.ts",
+    "worker": "pnpm --filter @automation/core build && tsx --env-file=.env apps/web/worker.ts"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "tsx": "^4.22.3",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}
