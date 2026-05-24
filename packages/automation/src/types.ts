@@ -11,11 +11,13 @@ export interface PostPayload {
   text: string
   imageUrls?: string[]
   scheduledAt?: Date
+  pageId?: string  // Facebook Page ID — nếu có sẽ đăng lên Page thay vì timeline cá nhân
 }
 
 export interface AutomationResult {
   success: boolean
   postId?: string
+  postUrl?: string   // Facebook permalink URL sau khi đăng thành công
   error?: string
   timestamp: Date
 }

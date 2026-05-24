@@ -128,11 +128,11 @@ function randomUUID(): string {
   })
 }
 
-function buildBaseParams(tokens: FbTokens) {
+function buildBaseParams(tokens: FbTokens, actorOverride?: string) {
   return {
-    av: tokens.userId,
+    av: actorOverride ?? tokens.userId,  // actor view — pageId khi đăng lên page
     __aaid: '0',
-    __user: tokens.userId,
+    __user: tokens.userId,               // luôn là user cá nhân đang đăng nhập
     __a: '1',
     __comet_req: '15',
     fb_dtsg: tokens.fbDtsg,
@@ -152,10 +152,11 @@ async function graphqlRequest(
   tokens: FbTokens,
   friendlyName: string,
   docId: string,
-  variables: Record<string, unknown>
-): Promise<AutomationResult> {
+  variables: Record<string, unknown>,
+  actorOverride?: string
+): Promise<AutomationResult & { _data?: Record<string, unknown> }> {
   const params = {
-    ...buildBaseParams(tokens),
+    ...buildBaseParams(tokens, actorOverride),
     fb_api_req_friendly_name: friendlyName,
     doc_id: docId,
     variables: JSON.stringify(variables),
@@ -163,21 +164,29 @@ async function graphqlRequest(
 
   const body = new URLSearchParams(params).toString()
 
-  const res = await fetch(FB_GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Cookie: cookiesToHeader(cookies),
-      'User-Agent': userAgent,
-      'X-FB-Friendly-Name': friendlyName,
-      'X-FB-LSD': tokens.lsd,
-      Referer: FB_HOME_URL,
-      Origin: 'https://www.facebook.com',
-      'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
-      'Sec-Fetch-Site': 'same-origin',
-    },
-    body,
-  })
+  let res: Response
+  try {
+    res = await fetch(FB_GRAPHQL_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookiesToHeader(cookies),
+        'User-Agent': userAgent,
+        'X-FB-Friendly-Name': friendlyName,
+        'X-FB-LSD': tokens.lsd,
+        Referer: FB_HOME_URL,
+        Origin: 'https://www.facebook.com',
+        'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+        'Sec-Fetch-Site': 'same-origin',
+      },
+      body,
+    })
+  } catch (err) {
+    const e = err as Error & { cause?: unknown }
+    const cause = e.cause instanceof Error ? e.cause.message : String(e.cause ?? '')
+    console.error('[graphqlRequest] fetch threw:', e.message, '| cause:', cause)
+    return { success: false, error: `Network error: ${e.message} — ${cause}`, timestamp: new Date() }
+  }
 
   // Facebook prepends "for (;;);" to GraphQL responses — strip trước khi parse
   const raw = await res.text()
@@ -213,7 +222,7 @@ async function graphqlRequest(
     return { success: false, error: msgs, timestamp: new Date() }
   }
 
-  return { success: true, timestamp: new Date() }
+  return { success: true, timestamp: new Date(), _data: json }
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -227,6 +236,8 @@ export async function postToFacebook(
   await randomDelay()
 
   const sessionId = randomUUID()
+  const actorId = payload.pageId ?? tokens.userId
+  const isPage = !!payload.pageId
 
   const variables = {
     input: {
@@ -252,7 +263,7 @@ export async function postToFacebook(
       text_format_preset_id: '0',
       logging: { composer_session_id: sessionId },
       tracking: [null],
-      actor_id: tokens.userId,
+      actor_id: actorId,
       client_mutation_id: '1',
     },
     feedLocation: 'TIMELINE',
@@ -271,14 +282,29 @@ export async function postToFacebook(
     ...RELAY_PROVIDERS,
   }
 
-  return graphqlRequest(
+  const result = await graphqlRequest(
     cookies,
     userAgent,
-    tokens,
+    tokens,       // tokens.userId luôn là user cá nhân — đúng cho __user
     'ComposerStoryCreateMutation',
     DOC_IDS.createPost,
-    variables
+    variables,
+    isPage ? actorId : undefined  // actorOverride cho av khi đăng lên page
   )
+
+  if (result.success && result._data) {
+    // Thử extract Facebook story URL từ response
+    try {
+      const d = result._data as Record<string, unknown>
+      const storyCreate = (d['data'] as Record<string, unknown>)?.['story_create'] as Record<string, unknown> | undefined
+      const story = storyCreate?.['story'] as Record<string, unknown> | undefined
+      const url = story?.['url'] as string | undefined
+      if (url) result.postUrl = url.startsWith('http') ? url : `https://www.facebook.com${url}`
+    } catch { /* URL extraction optional — không fail nếu không có */ }
+  }
+
+  const { _data: _, ...clean } = result
+  return clean
 }
 
 export async function createComment(
