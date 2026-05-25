@@ -1,5 +1,5 @@
 import { fetch } from 'undici'
-import type { AutomationResult, CookieData, PostPayload, SessionTokens } from '../types.js'
+import type { AutomationResult, CookieData, PhotoInput, PostPayload, SessionTokens } from '../types.js'
 
 const FB_GRAPHQL_URL = 'https://www.facebook.com/api/graphql/'
 const FB_HOME_URL = 'https://www.facebook.com/'
@@ -225,6 +225,146 @@ async function graphqlRequest(
   return { success: true, timestamp: new Date(), _data: json }
 }
 
+// ─── Photo Upload ──────────────────────────────────────────────────────────
+
+// Facebook upload dùng rupload endpoint riêng cho từng file
+const FB_RUPLOAD_URL = 'https://www.facebook.com/ajax/react_composer/attachments/photo/upload'
+
+export interface UploadedPhoto {
+  photoId: string
+}
+
+export async function uploadPhoto(
+  cookies: CookieData[],
+  userAgent: string,
+  tokens: FbTokens,
+  photo: PhotoInput,
+  actorId?: string
+): Promise<UploadedPhoto> {
+  const { buffer: imgBuffer, filename, mimeType } = photo
+  const contentType = mimeType || 'image/jpeg'
+
+  console.log(`[uploadPhoto] uploading "${filename}" (${imgBuffer.length} bytes, ${contentType})`)
+
+  const actor = actorId ?? tokens.userId
+
+  // Dùng multipart form — gửi file kèm token qua GraphQL endpoint
+  const boundary = `----WebKitFormBoundary${randomUUID().replace(/-/g, '').slice(0, 16)}`
+
+  const formFields: Record<string, string> = {
+    ...buildBaseParams(tokens, actorId),
+    fb_api_req_friendly_name: 'CometPhotoUploadMutation',
+    source: '8',
+    profile_id: actor,
+    waterfallxapp: 'comet',
+    farr: '0',
+    upload_speed: '0',
+    qn: randomUUID(),
+  }
+
+  const parts: Buffer[] = []
+  for (const [key, value] of Object.entries(formFields)) {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`
+    ))
+  }
+
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
+  ))
+  parts.push(imgBuffer)
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+
+  const body = Buffer.concat(parts)
+
+  // Thử nhiều endpoint — Facebook thay đổi thường xuyên
+  const uploadUrls = [
+    FB_RUPLOAD_URL,
+    'https://upload.facebook.com/ajax/react_composer/attachments/photo/upload',
+    FB_GRAPHQL_URL,
+  ]
+
+  let lastError = ''
+  for (const url of uploadUrls) {
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          Cookie: cookiesToHeader(cookies),
+          'User-Agent': userAgent,
+          'X-FB-LSD': tokens.lsd,
+          'X-FB-Friendly-Name': 'CometPhotoUploadMutation',
+          Referer: FB_HOME_URL,
+          Origin: 'https://www.facebook.com',
+          'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+          'Sec-Fetch-Site': 'same-origin',
+        },
+        body,
+      })
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err)
+      console.error(`[uploadPhoto] fetch failed for ${url}:`, lastError)
+      continue
+    }
+
+    if (res.status === 404) {
+      console.log(`[uploadPhoto] 404 for ${url} — trying next endpoint`)
+      lastError = `404 from ${url}`
+      continue
+    }
+
+    const raw = await res.text()
+    const cleaned = raw.startsWith('for (;;);') ? raw.slice(9) : raw
+
+    console.log(`[uploadPhoto] ${url} — status: ${res.status}, preview: ${cleaned.slice(0, 300)}`)
+
+    let json: Record<string, unknown>
+    try {
+      json = JSON.parse(cleaned) as Record<string, unknown>
+    } catch {
+      lastError = `invalid JSON from ${url}: ${raw.slice(0, 200)}`
+      continue
+    }
+
+    const photoId = extractPhotoId(json)
+    if (photoId) {
+      console.log(`[uploadPhoto] success via ${url} — photoId: ${photoId}`)
+      return { photoId }
+    }
+
+    lastError = `no photoId from ${url}: ${JSON.stringify(json).slice(0, 300)}`
+    console.log(`[uploadPhoto] ${lastError}`)
+  }
+
+  throw new Error(`Photo upload failed on all endpoints — last: ${lastError}`)
+}
+
+function extractPhotoId(json: Record<string, unknown>): string | undefined {
+  // Cấu trúc response thay đổi theo endpoint — tìm ở mọi nơi phổ biến
+  const payload = json['payload'] as Record<string, unknown> | undefined
+  const data = json['data'] as Record<string, unknown> | undefined
+
+  // endpoint cũ: payload.photoID
+  const fromPayload = payload?.['photoID'] ?? payload?.['photo_id'] ?? payload?.['fbid']
+  if (fromPayload) return String(fromPayload)
+
+  // GraphQL response: data.photo.id hoặc data.node.id
+  if (data) {
+    const photo = data['photo'] as Record<string, unknown> | undefined
+    const node = data['node'] as Record<string, unknown> | undefined
+    const id = photo?.['id'] ?? node?.['id'] ?? data['id'] ?? data['fbid']
+    if (id) return String(id)
+  }
+
+  // Top level
+  const topLevel = json['photoID'] ?? json['photo_id'] ?? json['fbid'] ?? json['id']
+  if (topLevel) return String(topLevel)
+
+  return undefined
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function postToFacebook(
@@ -239,13 +379,40 @@ export async function postToFacebook(
   const actorId = payload.pageId ?? tokens.userId
   const isPage = !!payload.pageId
 
+  // Upload ảnh nếu có
+  const photoIds: string[] = []
+  const uploadErrors: string[] = []
+  if (payload.photos?.length) {
+    console.log(`[postToFacebook] uploading ${payload.photos.length} photo(s)...`)
+    for (const photo of payload.photos) {
+      try {
+        const uploaded = await uploadPhoto(
+          cookies, userAgent, tokens, photo,
+          isPage ? actorId : undefined
+        )
+        photoIds.push(uploaded.photoId)
+        console.log(`[postToFacebook] photo "${photo.filename}" uploaded — id: ${uploaded.photoId}`)
+        await randomDelay(1000, 3000)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[postToFacebook] photo upload FAILED for "${photo.filename}":`, msg)
+        uploadErrors.push(`${photo.filename}: ${msg}`)
+      }
+    }
+    console.log(`[postToFacebook] upload done — ${photoIds.length}/${payload.photos.length} succeeded`)
+  }
+
+  const attachments = photoIds.map((id) => ({
+    photo: { id },
+  }))
+
   const variables = {
     input: {
       composer_entry_point: 'inline_composer',
       composer_source_surface: 'timeline',
       idempotence_token: `${sessionId}_FEED`,
       source: 'WWW',
-      attachments: [],
+      attachments,
       audience: {
         privacy: {
           allow: [],

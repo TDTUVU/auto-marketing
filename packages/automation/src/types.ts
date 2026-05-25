@@ -7,11 +7,17 @@ export interface Account {
   cookiesPath: string
 }
 
+export interface PhotoInput {
+  buffer: Buffer
+  filename: string
+  mimeType: string
+}
+
 export interface PostPayload {
   text: string
-  imageUrls?: string[]
+  photos?: PhotoInput[]
   scheduledAt?: Date
-  pageId?: string  // Facebook Page ID — nếu có sẽ đăng lên Page thay vì timeline cá nhân
+  pageId?: string
 }
 
 export interface AutomationResult {
