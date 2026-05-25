@@ -7,12 +7,27 @@ function makeConnection() {
   return new IORedis(REDIS_URL, { maxRetriesPerRequest: null })
 }
 
-// Queues share one connection (non-blocking)
-const queueConnection = makeConnection()
+// Lazy-initialized — không kết nối lúc import, chỉ kết nối khi thực sự dùng
+let _queueConnection: IORedis | undefined
+let _postQueue: Queue<PostJobData> | undefined
+let _commentQueue: Queue<CommentJobData> | undefined
+let _autopilotQueue: Queue<AutoPilotJobData> | undefined
 
-export const postQueue = new Queue('post-queue', { connection: queueConnection })
-export const commentQueue = new Queue('comment-queue', { connection: queueConnection })
-export const autopilotQueue = new Queue('autopilot-queue', { connection: queueConnection })
+function getQueueConnection() {
+  return (_queueConnection ??= makeConnection())
+}
+
+export function getPostQueue() {
+  return (_postQueue ??= new Queue<PostJobData>('post-queue', { connection: getQueueConnection() }))
+}
+
+export function getCommentQueue() {
+  return (_commentQueue ??= new Queue<CommentJobData>('comment-queue', { connection: getQueueConnection() }))
+}
+
+export function getAutopilotQueue() {
+  return (_autopilotQueue ??= new Queue<AutoPilotJobData>('autopilot-queue', { connection: getQueueConnection() }))
+}
 
 export interface PostJobData {
   postId: string
@@ -50,7 +65,7 @@ export function createCommentWorker(
 }
 
 export async function scheduleCommentPoll(data: CommentJobData): Promise<string> {
-  const job = await commentQueue.add('poll-comments', data, {
+  const job = await getCommentQueue().add('poll-comments', data, {
     repeat: { every: 5 * 60 * 1000 },
     attempts: 2,
     backoff: { type: 'exponential', delay: 30_000 },
@@ -74,7 +89,7 @@ export function createAutoPilotWorker(
 }
 
 export async function startAutoPilotScheduler(): Promise<void> {
-  await autopilotQueue.add(
+  await getAutopilotQueue().add(
     'autopilot-tick',
     { configId: '__all__' },
     {
@@ -86,7 +101,7 @@ export async function startAutoPilotScheduler(): Promise<void> {
 
 export async function schedulePost(data: PostJobData, scheduledAt: Date): Promise<string> {
   const delay = Math.max(0, scheduledAt.getTime() - Date.now())
-  const job = await postQueue.add('publish-post', data, {
+  const job = await getPostQueue().add('publish-post', data, {
     delay,
     attempts: 3,
     backoff: { type: 'exponential', delay: 60_000 },

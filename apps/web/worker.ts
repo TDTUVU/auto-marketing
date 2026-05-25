@@ -1,5 +1,5 @@
 import IORedis from 'ioredis'
-import { postQueue, commentQueue, startAutoPilotScheduler } from './lib/queue/jobs'
+import { getPostQueue, startAutoPilotScheduler } from './lib/queue/jobs'
 import { worker } from './lib/queue/worker'
 import { commentWorker } from './lib/queue/commentWorker'
 import { autopilotWorker } from './lib/queue/autopilotWorker'
@@ -11,10 +11,10 @@ const testConn = new IORedis(REDIS_URL, { maxRetriesPerRequest: 1 })
 testConn.ping().then(async (res) => {
   console.log('[Worker] Redis ping:', res)
 
-  const waiting = await postQueue.getWaitingCount()
-  const delayed = await postQueue.getDelayedCount()
-  const active  = await postQueue.getActiveCount()
-  const failed  = await postQueue.getFailedCount()
+  const waiting = await getPostQueue().getWaitingCount()
+  const delayed = await getPostQueue().getDelayedCount()
+  const active  = await getPostQueue().getActiveCount()
+  const failed  = await getPostQueue().getFailedCount()
   console.log(`[Worker] post-queue — waiting:${waiting} delayed:${delayed} active:${active} failed:${failed}`)
 
   testConn.disconnect()
