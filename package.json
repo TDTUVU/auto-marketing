@@ -4,6 +4,9 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
+    "build:all": "pnpm --filter @automation/core build && pnpm --filter web build",
+    "start:web": "pnpm --filter web start",
+    "start:worker": "pnpm --filter web worker",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test:post": "tsx scripts/test_post.ts",
