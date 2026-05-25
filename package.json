@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
-    "build:all": "pnpm --filter @automation/core build && pnpm --filter web build",
+    "build:all": "NODE_ENV=production pnpm --filter @automation/core build && NODE_ENV=production pnpm --filter web build",
     "start:web": "pnpm --filter web start",
     "start:worker": "pnpm --filter web worker",
     "lint": "pnpm -r lint",
