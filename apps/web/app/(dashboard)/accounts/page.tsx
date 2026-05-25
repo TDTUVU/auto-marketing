@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
 import { Globe, Camera, Clock, Users, Plus, ShieldCheck } from 'lucide-react'
 import { connectDB } from '@/lib/db'

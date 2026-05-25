@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
 import { Plus, Package, Trash2 } from 'lucide-react'
 import { connectDB } from '@/lib/db'

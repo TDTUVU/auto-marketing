@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { Zap } from 'lucide-react'
 import { connectDB } from '@/lib/db'
 import { Account, AutoPilotConfig, Product } from '@/lib/db/schema'
