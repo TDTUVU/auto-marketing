@@ -105,6 +105,9 @@ importers:
       puppeteer-extra-plugin-stealth:
         specifier: ^2.11.2
         version: 2.11.2(playwright-extra@4.3.6(playwright-core@1.60.0)(playwright@1.60.0))
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
       undici:
         specifier: ^6.25.0
         version: 6.25.0
@@ -112,9 +115,6 @@ importers:
       '@types/node':
         specifier: ^20.12.12
         version: 20.19.41
-      typescript:
-        specifier: ^5.4.5
-        version: 5.9.3
 
 packages:
 
