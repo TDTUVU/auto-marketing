@@ -6,6 +6,7 @@ import { scheduleCommentPoll } from '@/lib/queue/jobs'
 
 const RequestSchema = z.object({
   postId: z.string().min(1),
+  postUrl: z.string().url().optional(),
 })
 
 export async function POST(request: Request) {
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: null, error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { postId } = parsed.data
+  const { postId, postUrl: clientPostUrl } = parsed.data
 
   try {
     await connectDB()
@@ -36,17 +37,23 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (!post.platformPostId) {
+
+    const resolvedUrl = post.platformPostId || clientPostUrl
+    if (!resolvedUrl) {
       return NextResponse.json(
-        { data: null, error: 'Post không có platformPostId — không biết URL để scrape comments' },
+        { data: null, error: 'Không có URL bài viết — vui lòng nhập URL thủ công' },
         { status: 400 }
       )
+    }
+
+    if (clientPostUrl && !post.platformPostId) {
+      await Post.findByIdAndUpdate(postId, { platformPostId: clientPostUrl })
     }
 
     const jobId = await scheduleCommentPoll({
       postId: post._id.toString(),
       accountId: post.accountId.toString(),
-      postUrl: post.platformPostId,   // lưu full URL ở đây
+      postUrl: resolvedUrl,
       postContent: post.content,
     })
 

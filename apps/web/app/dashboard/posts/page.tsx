@@ -104,7 +104,7 @@ export default async function PostsPage() {
                         {statusLabel[status]}
                       </span>
                     </Badge>
-                    {status === 'published' && <AutoReplyBtn postId={id} />}
+                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} />}
                   </div>
                 </div>
                 {post.errorMessage && (

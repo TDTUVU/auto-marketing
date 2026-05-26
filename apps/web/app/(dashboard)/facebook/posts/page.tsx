@@ -92,7 +92,7 @@ export default async function PostsPage() {
                     <Badge variant={status}>
                       <span className="flex items-center gap-1">{statusIcon[status]}{statusLabel[status]}</span>
                     </Badge>
-                    {status === 'published' && <AutoReplyBtn postId={id} />}
+                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} />}
                   </div>
                 </div>
                 {post.errorMessage && (

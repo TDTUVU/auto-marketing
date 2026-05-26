@@ -68,7 +68,7 @@ async function handlePostJob(data: PostJobData): Promise<void> {
     await Post.findByIdAndUpdate(postId, {
       status: 'published',
       publishedAt: result.timestamp,
-      ...(result.postId ? { platformPostId: result.postId } : {}),
+      platformPostId: result.postUrl || result.postId || '',
     })
   } else {
     await Post.findByIdAndUpdate(postId, {
