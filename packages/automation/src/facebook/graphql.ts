@@ -146,6 +146,50 @@ function randomUUID(): string {
   })
 }
 
+function extractPostUrl(data: Record<string, unknown>, userId: string): string | undefined {
+  const json = JSON.stringify(data)
+
+  // Path 1: data.story_create.story.url
+  try {
+    const d = data['data'] as Record<string, unknown> | undefined
+    const storyCreate = d?.['story_create'] as Record<string, unknown> | undefined
+    const story = storyCreate?.['story'] as Record<string, unknown> | undefined
+    const url = story?.['url'] as string | undefined
+    if (url) return url.startsWith('http') ? url : `https://www.facebook.com${url}`
+  } catch { /* try next */ }
+
+  // Path 2: search for story URL pattern in response
+  const urlMatch = json.match(/"url"\s*:\s*"(\/[^"]*\/posts\/[^"]+)"/)
+    ?? json.match(/"url"\s*:\s*"(https:\/\/www\.facebook\.com\/[^"]*\/posts\/[^"]+)"/)
+  if (urlMatch?.[1]) {
+    const url = urlMatch[1].replace(/\\\//g, '/')
+    return url.startsWith('http') ? url : `https://www.facebook.com${url}`
+  }
+
+  // Path 3: extract story_fbid from response and build permalink
+  const storyIdMatch = json.match(/"post_id"\s*:\s*"(\d+)"/)
+    ?? json.match(/"story_id"\s*:\s*"(\d+)"/)
+    ?? json.match(/"id"\s*:\s*"S:_I\d+:(\d+)"/)
+  if (storyIdMatch) {
+    return `https://www.facebook.com/permalink.php?story_fbid=${storyIdMatch[1]}&id=${userId}`
+  }
+
+  // Path 4: extract feedback_id and derive post ID
+  const feedbackMatch = json.match(/"feedback_id"\s*:\s*"([^"]+)"/)
+  if (feedbackMatch) {
+    try {
+      const decoded = Buffer.from(feedbackMatch[1]!, 'base64').toString('utf-8')
+      const fbidMatch = decoded.match(/(\d+)$/)
+      if (fbidMatch) {
+        return `https://www.facebook.com/permalink.php?story_fbid=${fbidMatch[1]}&id=${userId}`
+      }
+    } catch { /* fallback */ }
+  }
+
+  console.log('[extractPostUrl] could not extract URL from response keys:', Object.keys(data['data'] as Record<string, unknown> ?? {}))
+  return undefined
+}
+
 function buildBaseParams(tokens: FbTokens, actorOverride?: string) {
   return {
     av: actorOverride ?? tokens.userId,  // actor view — pageId khi đăng lên page
@@ -478,14 +522,12 @@ export async function postToFacebook(
   )
 
   if (result.success && result._data) {
-    // Thử extract Facebook story URL từ response
     try {
-      const d = result._data as Record<string, unknown>
-      const storyCreate = (d['data'] as Record<string, unknown>)?.['story_create'] as Record<string, unknown> | undefined
-      const story = storyCreate?.['story'] as Record<string, unknown> | undefined
-      const url = story?.['url'] as string | undefined
-      if (url) result.postUrl = url.startsWith('http') ? url : `https://www.facebook.com${url}`
-    } catch { /* URL extraction optional — không fail nếu không có */ }
+      const extracted = extractPostUrl(result._data, tokens.userId)
+      if (extracted) result.postUrl = extracted
+    } catch (err) {
+      console.error('[postToFacebook] URL extraction error:', err)
+    }
   }
 
   const { _data: _, ...clean } = result
