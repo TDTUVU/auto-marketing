@@ -5,6 +5,7 @@ import { Globe, Camera, Clock, Users, Plus, ShieldCheck } from 'lucide-react'
 import { connectDB } from '@/lib/db'
 import { Account, Post } from '@/lib/db/schema'
 import { Button } from '@/components/ui/button'
+import { DeleteAccountBtn } from '@/components/accounts/delete-account-btn'
 
 const platformIcon = {
   facebook: <Globe className="size-4 text-blue-600" />,
@@ -103,11 +104,14 @@ export default async function AccountsPage() {
                     <p className="text-xs text-zinc-400">Đã đăng</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-zinc-400 shrink-0">
-                  <Clock className="size-3" />
-                  <span>
-                    {new Date(account.createdAt).toLocaleDateString('vi-VN')}
-                  </span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                    <Clock className="size-3" />
+                    <span>
+                      {new Date(account.createdAt).toLocaleDateString('vi-VN')}
+                    </span>
+                  </div>
+                  <DeleteAccountBtn accountId={id} name={account.name} />
                 </div>
               </div>
             )
