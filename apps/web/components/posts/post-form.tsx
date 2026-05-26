@@ -25,8 +25,10 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [images, setImages] = useState<ImagePreview[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    new Set(accounts[0] ? [accounts[0]._id] : [])
+  )
   const [form, setForm] = useState({
-    accountId: accounts[0]?._id ?? '',
     idea: '',
     scheduledAt: '',
     tone: 'friendly' as 'friendly' | 'professional' | 'fun',
@@ -34,6 +36,23 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
 
   function set(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  function toggleAccount(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (selectedIds.size === accounts.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(accounts.map((a) => a._id)))
+    }
   }
 
   function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -55,68 +74,102 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.idea.trim()) { setError('Vui long nhap y tuong bai dang'); return }
-    if (!form.accountId) { setError('Vui long chon tai khoan'); return }
+    if (!form.idea.trim()) { setError('Vui lòng nhập ý tưởng bài đăng'); return }
+    if (selectedIds.size === 0) { setError('Vui lòng chọn ít nhất 1 tài khoản'); return }
 
     setLoading(true)
     setError('')
 
-    const fd = new FormData()
-    fd.append('accountId', form.accountId)
-    fd.append('idea', form.idea.trim())
-    fd.append('tone', form.tone)
-    if (form.scheduledAt) fd.append('scheduledAt', new Date(form.scheduledAt).toISOString())
-    for (const img of images) {
-      fd.append('images', img.file)
+    const ids = Array.from(selectedIds)
+    const errors: string[] = []
+    let successCount = 0
+
+    for (const accountId of ids) {
+      const fd = new FormData()
+      fd.append('accountId', accountId)
+      fd.append('idea', form.idea.trim())
+      fd.append('tone', form.tone)
+      if (form.scheduledAt) fd.append('scheduledAt', new Date(form.scheduledAt).toISOString())
+      for (const img of images) {
+        fd.append('images', img.file)
+      }
+
+      try {
+        const res = await fetch('/api/posts', { method: 'POST', body: fd })
+        const json = await res.json() as { data: unknown; error: unknown }
+        if (!res.ok || !json.data) {
+          const name = accounts.find((a) => a._id === accountId)?.name ?? accountId
+          errors.push(`${name}: ${typeof json.error === 'string' ? json.error : 'Lỗi'}`)
+        } else {
+          successCount++
+        }
+      } catch {
+        const name = accounts.find((a) => a._id === accountId)?.name ?? accountId
+        errors.push(`${name}: Không thể kết nối server`)
+      }
     }
 
-    try {
-      const res = await fetch('/api/posts', { method: 'POST', body: fd })
-      const json = await res.json() as { data: { postId: string } | null; error: unknown }
-      if (!res.ok || !json.data) {
-        setError(typeof json.error === 'string' ? json.error : 'Co loi xay ra')
-        return
-      }
+    if (errors.length > 0) {
+      setError(errors.join('\n'))
+    }
+    if (successCount > 0) {
       router.push('/dashboard/posts')
       router.refresh()
-    } catch {
-      setError('Khong the ket noi server')
-    } finally {
-      setLoading(false)
     }
+
+    setLoading(false)
   }
 
   return (
     <form onSubmit={submit} className="space-y-5">
-      {/* Account */}
-      <div className="space-y-1.5">
-        <Label htmlFor="accountId">Tai khoan</Label>
-        <select
-          id="accountId"
-          aria-label="Tai khoan"
-          value={form.accountId}
-          onChange={(e) => set('accountId', e.target.value)}
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
+      {/* Account selection */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Tài khoản</Label>
+          {accounts.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              {selectedIds.size === accounts.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+            </button>
+          )}
+        </div>
+        <div className="space-y-1.5">
           {accounts.map((a) => (
-            <option key={a._id} value={a._id}>
-              {a.name} ({a.platform})
-            </option>
+            <label
+              key={a._id}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
+                selectedIds.has(a._id)
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-zinc-200 hover:border-zinc-300'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={selectedIds.has(a._id)}
+                onChange={() => toggleAccount(a._id)}
+                className="size-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-zinc-900">{a.name}</span>
+              <span className="text-xs text-zinc-400">{a.platform}</span>
+            </label>
           ))}
-        </select>
+        </div>
       </div>
 
       {/* Idea */}
       <div className="space-y-1.5">
-        <Label htmlFor="idea">Y tuong bai dang</Label>
+        <Label htmlFor="idea">Ý tưởng bài đăng</Label>
         <Textarea
           id="idea"
           rows={4}
-          placeholder="VD: Hom nay shop ra mat ao thun he moi, mau pastel, gia chi 150k..."
+          placeholder="VD: Hôm nay shop ra mắt áo thun hè mới, màu pastel, giá chỉ 150k..."
           value={form.idea}
           onChange={(e) => set('idea', e.target.value)}
         />
-        <p className="text-xs text-zinc-400">AI se tu tao caption hoan chinh tu y tuong nay</p>
+        <p className="text-xs text-zinc-400">AI sẽ tự tạo caption hoàn chỉnh từ ý tưởng này</p>
       </div>
 
       {/* Tone */}
@@ -129,15 +182,15 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
           onChange={(e) => set('tone', e.target.value)}
           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="friendly">Than thien</option>
-          <option value="professional">Chuyen nghiep</option>
-          <option value="fun">Vui tuoi</option>
+          <option value="friendly">Thân thiện</option>
+          <option value="professional">Chuyên nghiệp</option>
+          <option value="fun">Vui tươi</option>
         </select>
       </div>
 
       {/* Image Upload */}
       <div className="space-y-1.5">
-        <Label>Anh dinh kem</Label>
+        <Label>Ảnh đính kèm</Label>
         <input
           ref={fileRef}
           type="file"
@@ -145,7 +198,7 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
           multiple
           onChange={handleFiles}
           className="hidden"
-          aria-label="Chon anh dinh kem"
+          aria-label="Chọn ảnh đính kèm"
         />
         <button
           type="button"
@@ -153,7 +206,7 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
           className="flex items-center gap-2 rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-sm text-zinc-500 hover:border-zinc-400 hover:text-zinc-600 transition-colors w-full justify-center"
         >
           <ImagePlus className="size-4" />
-          Chon anh tu may tinh
+          Chọn ảnh từ máy tính
         </button>
 
         {images.length > 0 && (
@@ -168,7 +221,7 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
                 <button
                   type="button"
                   onClick={() => removeImage(i)}
-                  aria-label="Xoa anh"
+                  aria-label="Xóa ảnh"
                   className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="size-3" />
@@ -182,31 +235,35 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
 
       {/* Schedule */}
       <div className="space-y-1.5">
-        <Label htmlFor="scheduledAt">Thoi gian dang</Label>
+        <Label htmlFor="scheduledAt">Thời gian đăng</Label>
         <Input
           id="scheduledAt"
           type="datetime-local"
           value={form.scheduledAt}
           onChange={(e) => set('scheduledAt', e.target.value)}
         />
-        <p className="text-xs text-zinc-400">Bo trong de dang ngay</p>
+        <p className="text-xs text-zinc-400">Bỏ trống để đăng ngay</p>
       </div>
 
       {error && (
-        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">{error}</p>
       )}
 
       <div className="flex gap-3 pt-1">
         <Button type="submit" loading={loading} className="flex-1">
           <Sparkles className="size-4" />
-          {loading ? 'Dang tao caption...' : 'Tao bai + len lich'}
+          {loading
+            ? 'Đang tạo caption...'
+            : selectedIds.size > 1
+              ? `Tạo bài cho ${selectedIds.size} tài khoản`
+              : 'Tạo bài + lên lịch'}
         </Button>
         <Button
           type="button"
           variant="outline"
           onClick={() => router.back()}
         >
-          Huy
+          Hủy
         </Button>
       </div>
     </form>
