@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { ImagePlus, X, Package } from 'lucide-react'
+import { ImagePlus, X, Package, Save } from 'lucide-react'
 
 interface Account {
   _id: string
@@ -19,18 +19,37 @@ interface ImagePreview {
   url: string
 }
 
-export function ProductForm({ accounts }: { accounts: Account[] }) {
+interface InitialData {
+  _id: string
+  accountId: string
+  name: string
+  description: string
+  price?: number
+  category?: string
+  imageUrls: string[]
+}
+
+export function ProductForm({
+  accounts,
+  initialData,
+}: {
+  accounts: Account[]
+  initialData?: InitialData
+}) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
+  const isEdit = !!initialData
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [images, setImages] = useState<ImagePreview[]>([])
+  const [existingImages, setExistingImages] = useState<string[]>(initialData?.imageUrls ?? [])
   const [form, setForm] = useState({
-    accountId: accounts[0]?._id ?? '',
-    name: '',
-    description: '',
-    price: '',
-    category: '',
+    accountId: initialData?.accountId ?? accounts[0]?._id ?? '',
+    name: initialData?.name ?? '',
+    description: initialData?.description ?? '',
+    price: initialData?.price?.toString() ?? '',
+    category: initialData?.category ?? '',
   })
 
   function set(field: string, value: string) {
@@ -47,11 +66,15 @@ export function ProductForm({ accounts }: { accounts: Account[] }) {
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  function removeImage(index: number) {
+  function removeNewImage(index: number) {
     setImages((prev) => {
       URL.revokeObjectURL(prev[index].url)
       return prev.filter((_, i) => i !== index)
     })
+  }
+
+  function removeExistingImage(index: number) {
+    setExistingImages((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function submit(e: React.FormEvent) {
@@ -73,8 +96,14 @@ export function ProductForm({ accounts }: { accounts: Account[] }) {
       fd.append('images', img.file)
     }
 
+    if (isEdit) {
+      fd.append('existingImages', JSON.stringify(existingImages))
+    }
+
     try {
-      const res = await fetch('/api/products', { method: 'POST', body: fd })
+      const url = isEdit ? `/api/products/${initialData._id}` : '/api/products'
+      const method = isEdit ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, body: fd })
       const json = await res.json() as { data: unknown; error: string | null }
       if (!res.ok || !json.data) {
         setError(json.error ?? 'Có lỗi xảy ra')
@@ -88,6 +117,8 @@ export function ProductForm({ accounts }: { accounts: Account[] }) {
       setLoading(false)
     }
   }
+
+  const totalImages = existingImages.length + images.length
 
   return (
     <form onSubmit={submit} className="space-y-5">
@@ -172,18 +203,35 @@ export function ProductForm({ accounts }: { accounts: Account[] }) {
           Chọn ảnh từ máy tính
         </button>
 
-        {images.length > 0 && (
+        {totalImages > 0 && (
           <div className="grid grid-cols-4 gap-2 mt-2">
-            {images.map((img, i) => (
-              <div key={i} className="relative group">
+            {existingImages.map((filename, i) => (
+              <div key={`existing-${filename}`} className="relative group">
                 <img
-                  src={img.url}
-                  alt={img.file.name}
+                  src={`/api/uploads/${filename}`}
+                  alt=""
                   className="w-full aspect-square object-cover rounded-lg border border-zinc-200"
                 />
                 <button
                   type="button"
-                  onClick={() => removeImage(i)}
+                  onClick={() => removeExistingImage(i)}
+                  aria-label="Xóa ảnh"
+                  className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+            {images.map((img, i) => (
+              <div key={`new-${i}`} className="relative group">
+                <img
+                  src={img.url}
+                  alt={img.file.name}
+                  className="w-full aspect-square object-cover rounded-lg border border-blue-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeNewImage(i)}
                   aria-label="Xóa ảnh"
                   className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
@@ -201,8 +249,8 @@ export function ProductForm({ accounts }: { accounts: Account[] }) {
 
       <div className="flex gap-3 pt-1">
         <Button type="submit" loading={loading} className="flex-1">
-          <Package className="size-4" />
-          {loading ? 'Đang lưu...' : 'Thêm sản phẩm'}
+          {isEdit ? <Save className="size-4" /> : <Package className="size-4" />}
+          {loading ? 'Đang lưu...' : isEdit ? 'Cập nhật sản phẩm' : 'Thêm sản phẩm'}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Hủy
