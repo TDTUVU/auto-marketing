@@ -1,16 +1,6 @@
 import { NextResponse } from 'next/server'
-import { readFile } from 'fs/promises'
-import path from 'path'
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
-
-const MIME_MAP: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  gif: 'image/gif',
-}
+import { connectDB } from '@/lib/db'
+import { Image } from '@/lib/db/schema'
 
 export async function GET(
   _request: Request,
@@ -22,20 +12,21 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid filename' }, { status: 400 })
   }
 
-  const filePath = path.join(UPLOADS_DIR, filename)
-
   try {
-    const buffer = await readFile(filePath)
-    const ext = path.extname(filename).slice(1).toLowerCase()
-    const contentType = MIME_MAP[ext] ?? 'application/octet-stream'
+    await connectDB()
+    const image = await Image.findOne({ filename })
 
-    return new NextResponse(buffer, {
+    if (!image) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+
+    return new NextResponse(image.data, {
       headers: {
-        'Content-Type': contentType,
+        'Content-Type': image.mimeType,
         'Cache-Control': 'public, max-age=31536000, immutable',
       },
     })
   } catch {
-    return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
-import { writeFile, mkdir } from 'fs/promises'
-import path from 'path'
 import { connectDB } from '@/lib/db'
-import { Product } from '@/lib/db/schema'
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+import { Product, Image } from '@/lib/db/schema'
 
 export async function GET(
   _request: Request,
@@ -56,20 +52,30 @@ export async function PUT(
         ? JSON.parse(existingImagesRaw) as string[]
         : []
 
+      const oldProduct = await Product.findById(id).lean()
+      if (oldProduct) {
+        const removedImages = oldProduct.imageUrls.filter(
+          (f: string) => !existingImages.includes(f)
+        )
+        if (removedImages.length > 0) {
+          await Image.deleteMany({ filename: { $in: removedImages } })
+        }
+      }
+
       const imageFiles = formData.getAll('images') as File[]
       const newFilenames: string[] = []
 
-      if (imageFiles.length > 0) {
-        await mkdir(UPLOADS_DIR, { recursive: true })
-        for (const file of imageFiles) {
-          if (!file.type.startsWith('image/')) continue
-          const ext = file.name.split('.').pop() ?? 'jpg'
-          const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-          const filePath = path.join(UPLOADS_DIR, uniqueName)
-          const arrayBuf = await file.arrayBuffer()
-          await writeFile(filePath, Buffer.from(arrayBuf))
-          newFilenames.push(uniqueName)
-        }
+      for (const file of imageFiles) {
+        if (!file.type.startsWith('image/')) continue
+        const ext = file.name.split('.').pop() ?? 'jpg'
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+        const arrayBuf = await file.arrayBuffer()
+        await Image.create({
+          filename: uniqueName,
+          data: Buffer.from(arrayBuf),
+          mimeType: file.type,
+        })
+        newFilenames.push(uniqueName)
       }
 
       update['imageUrls'] = [...existingImages, ...newFilenames]
@@ -111,6 +117,10 @@ export async function DELETE(
     const product = await Product.findByIdAndDelete(id)
     if (!product) {
       return NextResponse.json({ data: null, error: 'Product not found' }, { status: 404 })
+    }
+
+    if (product.imageUrls.length > 0) {
+      await Image.deleteMany({ filename: { $in: product.imageUrls } })
     }
 
     return NextResponse.json({ data: { deleted: true }, error: null })

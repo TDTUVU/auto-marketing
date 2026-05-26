@@ -39,7 +39,6 @@ export interface PostJobData {
   postId: string
   accountId: string
   content: string
-  imagePaths?: string[]
   images?: ImageJobData[]
 }
 

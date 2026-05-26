@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
-import { writeFile, mkdir } from 'fs/promises'
-import path from 'path'
 import { connectDB } from '@/lib/db'
-import { Product, Account } from '@/lib/db/schema'
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+import { Product, Account, Image } from '@/lib/db/schema'
 
 export async function GET(request: Request) {
   await connectDB()
@@ -51,18 +47,17 @@ export async function POST(request: Request) {
     const imageFiles = formData.getAll('images') as File[]
     const imageFilenames: string[] = []
 
-    if (imageFiles.length > 0) {
-      await mkdir(UPLOADS_DIR, { recursive: true })
-
-      for (const file of imageFiles) {
-        if (!file.type.startsWith('image/')) continue
-        const ext = file.name.split('.').pop() ?? 'jpg'
-        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-        const filePath = path.join(UPLOADS_DIR, uniqueName)
-        const arrayBuf = await file.arrayBuffer()
-        await writeFile(filePath, Buffer.from(arrayBuf))
-        imageFilenames.push(uniqueName)
-      }
+    for (const file of imageFiles) {
+      if (!file.type.startsWith('image/')) continue
+      const ext = file.name.split('.').pop() ?? 'jpg'
+      const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const arrayBuf = await file.arrayBuffer()
+      await Image.create({
+        filename: uniqueName,
+        data: Buffer.from(arrayBuf),
+        mimeType: file.type,
+      })
+      imageFilenames.push(uniqueName)
     }
 
     const product = await Product.create({

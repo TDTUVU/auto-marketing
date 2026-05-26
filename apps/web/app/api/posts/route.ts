@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
-import { writeFile, mkdir } from 'fs/promises'
-import path from 'path'
 import { connectDB } from '@/lib/db'
-import { Account, Post } from '@/lib/db/schema'
+import { Account, Post, Image } from '@/lib/db/schema'
 import { generateContent } from '@/lib/llm/content'
 import { schedulePost, type ImageJobData } from '@/lib/queue/jobs'
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 
 export async function GET() {
   await connectDB()
@@ -65,24 +61,23 @@ export async function POST(request: Request) {
 
     const imageFilenames: string[] = []
     const jobImages: ImageJobData[] = []
-    if (imageFiles.length > 0) {
-      await mkdir(UPLOADS_DIR, { recursive: true })
-
-      for (const file of imageFiles) {
-        if (!file.type.startsWith('image/')) continue
-        const ext = file.name.split('.').pop() ?? 'jpg'
-        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-        const filePath = path.join(UPLOADS_DIR, uniqueName)
-        const arrayBuf = await file.arrayBuffer()
-        const buf = Buffer.from(arrayBuf)
-        await writeFile(filePath, buf)
-        imageFilenames.push(uniqueName)
-        jobImages.push({
-          base64: buf.toString('base64'),
-          filename: uniqueName,
-          mimeType: file.type,
-        })
-      }
+    for (const file of imageFiles) {
+      if (!file.type.startsWith('image/')) continue
+      const ext = file.name.split('.').pop() ?? 'jpg'
+      const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const arrayBuf = await file.arrayBuffer()
+      const buf = Buffer.from(arrayBuf)
+      await Image.create({
+        filename: uniqueName,
+        data: buf,
+        mimeType: file.type,
+      })
+      imageFilenames.push(uniqueName)
+      jobImages.push({
+        base64: buf.toString('base64'),
+        filename: uniqueName,
+        mimeType: file.type,
+      })
     }
 
     const postAt = scheduledAt ? new Date(scheduledAt) : new Date()

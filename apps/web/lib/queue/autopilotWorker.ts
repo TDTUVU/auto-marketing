@@ -1,7 +1,6 @@
-import path from 'path'
 import { connectDB } from '../db/index'
-import { Account, Post, Product, AutoPilotConfig, AutomationLog } from '../db/schema'
-import { createAutoPilotWorker, schedulePost, type PostJobData } from './jobs'
+import { Account, Post, Product, Image, AutoPilotConfig, AutomationLog } from '../db/schema'
+import { createAutoPilotWorker, schedulePost, type PostJobData, type ImageJobData } from './jobs'
 import { generateContent } from '../llm/content'
 
 async function handleAutoPilotTick(): Promise<void> {
@@ -13,7 +12,6 @@ async function handleAutoPilotTick(): Promise<void> {
   const now = new Date()
   const currentHH = String(now.getHours()).padStart(2, '0')
   const currentMM = String(now.getMinutes()).padStart(2, '0')
-  const currentTime = `${currentHH}:${currentMM}`
 
   for (const config of configs) {
     try {
@@ -63,10 +61,18 @@ async function handleAutoPilotTick(): Promise<void> {
         ? `${generated.caption}\n\n${hashtagLine}`
         : generated.caption
 
-      const imageFilenames = product.imageUrls ?? []
-      const imagePaths = imageFilenames.map((f: string) =>
-        path.join(process.cwd(), 'uploads', f)
-      )
+      const imageFilenames: string[] = product.imageUrls ?? []
+      const jobImages: ImageJobData[] = []
+      for (const filename of imageFilenames) {
+        const img = await Image.findOne({ filename })
+        if (img) {
+          jobImages.push({
+            base64: img.data.toString('base64'),
+            filename: img.filename,
+            mimeType: img.mimeType,
+          })
+        }
+      }
 
       const post = await Post.create({
         accountId: config.accountId,
@@ -80,7 +86,7 @@ async function handleAutoPilotTick(): Promise<void> {
         postId: post._id.toString(),
         accountId: config.accountId.toString(),
         content: fullContent,
-        imagePaths,
+        images: jobImages,
       }
 
       await schedulePost(jobData, now)

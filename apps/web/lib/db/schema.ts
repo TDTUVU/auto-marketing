@@ -178,6 +178,25 @@ const AutoPilotConfigSchema = new Schema<IAutoPilotConfig>(
 export const AutoPilotConfig =
   models['AutoPilotConfig'] ?? model<IAutoPilotConfig>('AutoPilotConfig', AutoPilotConfigSchema)
 
+// Image (stored in MongoDB instead of filesystem for Railway compatibility)
+export interface IImage extends Document {
+  filename: string
+  data: Buffer
+  mimeType: string
+  createdAt: Date
+}
+
+const ImageSchema = new Schema<IImage>(
+  {
+    filename: { type: String, required: true, unique: true },
+    data: { type: Buffer, required: true },
+    mimeType: { type: String, required: true },
+  },
+  { timestamps: true }
+)
+
+export const Image = models['Image'] ?? model<IImage>('Image', ImageSchema)
+
 // Automation Log
 export interface IAutomationLog extends Document {
   postId?: Types.ObjectId
