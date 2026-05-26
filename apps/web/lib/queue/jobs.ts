@@ -29,11 +29,18 @@ export function getAutopilotQueue() {
   return (_autopilotQueue ??= new Queue<AutoPilotJobData>('autopilot-queue', { connection: getQueueConnection() }))
 }
 
+export interface ImageJobData {
+  base64: string
+  filename: string
+  mimeType: string
+}
+
 export interface PostJobData {
   postId: string
   accountId: string
   content: string
   imagePaths?: string[]
+  images?: ImageJobData[]
 }
 
 export function createPostWorker(

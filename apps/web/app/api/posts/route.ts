@@ -4,7 +4,7 @@ import path from 'path'
 import { connectDB } from '@/lib/db'
 import { Account, Post } from '@/lib/db/schema'
 import { generateContent } from '@/lib/llm/content'
-import { schedulePost } from '@/lib/queue/jobs'
+import { schedulePost, type ImageJobData } from '@/lib/queue/jobs'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 
@@ -63,9 +63,8 @@ export async function POST(request: Request) {
       ? `${generated.caption}\n\n${hashtagLine}`
       : generated.caption
 
-    // Lưu ảnh vào uploads/
     const imageFilenames: string[] = []
-    const imagePaths: string[] = []
+    const jobImages: ImageJobData[] = []
     if (imageFiles.length > 0) {
       await mkdir(UPLOADS_DIR, { recursive: true })
 
@@ -75,9 +74,14 @@ export async function POST(request: Request) {
         const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
         const filePath = path.join(UPLOADS_DIR, uniqueName)
         const arrayBuf = await file.arrayBuffer()
-        await writeFile(filePath, Buffer.from(arrayBuf))
+        const buf = Buffer.from(arrayBuf)
+        await writeFile(filePath, buf)
         imageFilenames.push(uniqueName)
-        imagePaths.push(filePath)
+        jobImages.push({
+          base64: buf.toString('base64'),
+          filename: uniqueName,
+          mimeType: file.type,
+        })
       }
     }
 
@@ -95,7 +99,7 @@ export async function POST(request: Request) {
       postId: post._id.toString(),
       accountId,
       content: fullContent,
-      imagePaths,
+      images: jobImages,
     }
 
     const jobId = await schedulePost(jobData, postAt)

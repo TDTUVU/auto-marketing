@@ -54,14 +54,32 @@ export async function fetchFbTokens(
   userAgent: string,
   debug = false
 ): Promise<FbTokens> {
+  const fbCookies = cookies.filter((c) =>
+    c.domain.includes('facebook.com') || c.domain.includes('.facebook.com')
+  )
+
+  const keyNames = ['c_user', 'xs', 'datr', 'fr', 'sb']
+  const present = keyNames.filter((k) => fbCookies.some((c) => c.name === k))
+  const missing = keyNames.filter((k) => !fbCookies.some((c) => c.name === k))
+
+  if (debug) {
+    console.log(`    Cookies total: ${cookies.length}, facebook: ${fbCookies.length}`)
+    console.log(`    Key cookies present: ${present.join(', ')}`)
+    console.log(`    Key cookies MISSING: ${missing.join(', ') || 'none'}`)
+    console.log(`    User-Agent: ${userAgent.slice(0, 80)}...`)
+  }
+
   const res = await fetch(FB_HOME_URL, {
     headers: {
-      Cookie: cookiesToHeader(cookies),
+      Cookie: cookiesToHeader(fbCookies),
       'User-Agent': userAgent,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
       'Sec-Fetch-Mode': 'navigate',
       'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
     },
     redirect: 'follow',
   })

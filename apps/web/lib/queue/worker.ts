@@ -1,5 +1,3 @@
-import path from 'path'
-import { readFile } from 'fs/promises'
 import { connectDB } from '../db/index'
 import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
@@ -8,7 +6,7 @@ import type { PhotoInput } from '@automation/core'
 import { loadSessionForAccount } from '../session'
 
 async function handlePostJob(data: PostJobData): Promise<void> {
-  const { postId, accountId, content, imagePaths } = data
+  const { postId, accountId, content, images } = data
 
   await connectDB()
 
@@ -39,22 +37,14 @@ async function handlePostJob(data: PostJobData): Promise<void> {
     tokens = await fetchFbTokens(session.cookies, session.userAgent)
   }
 
-  // Đọc file ảnh từ disk → Buffer
   const photos: PhotoInput[] = []
-  if (imagePaths?.length) {
-    console.log(`[PostWorker] loading ${imagePaths.length} image(s) from disk...`)
-    for (const filePath of imagePaths) {
-      try {
-        const buffer = await readFile(filePath)
-        const ext = path.extname(filePath).slice(1).toLowerCase()
-        const mimeMap: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }
-        photos.push({ buffer, filename: path.basename(filePath), mimeType: mimeMap[ext] ?? 'image/jpeg' })
-        console.log(`[PostWorker] loaded: ${filePath} (${buffer.length} bytes)`)
-      } catch (err) {
-        console.error(`[PostWorker] FAILED to read image ${filePath}:`, err)
-      }
+  if (images?.length) {
+    console.log(`[PostWorker] loading ${images.length} image(s) from job data...`)
+    for (const img of images) {
+      const buffer = Buffer.from(img.base64, 'base64')
+      photos.push({ buffer, filename: img.filename, mimeType: img.mimeType })
+      console.log(`[PostWorker] loaded: ${img.filename} (${buffer.length} bytes)`)
     }
-    console.log(`[PostWorker] ${photos.length}/${imagePaths.length} images loaded`)
   } else {
     console.log('[PostWorker] no images for this post')
   }
