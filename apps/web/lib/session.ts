@@ -43,7 +43,7 @@ export interface ParsedCookieInput {
   secure?: boolean
 }
 
-export function parseCookieInput(raw: string): SessionData {
+export function parseCookieInput(raw: string, userAgent?: string): SessionData {
   const cookies = JSON.parse(raw) as ParsedCookieInput[]
 
   if (!Array.isArray(cookies) || cookies.length === 0) {
@@ -69,7 +69,7 @@ export function parseCookieInput(raw: string): SessionData {
       httpOnly: c.httpOnly ?? false,
       secure: c.secure ?? true,
     })),
-    userAgent: DEFAULT_USER_AGENT,
+    userAgent: userAgent || DEFAULT_USER_AGENT,
     lastRefreshed: new Date(),
   }
 }

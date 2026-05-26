@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     const platform = body['platform'] as string | undefined
     const cookieJson = (body['cookieJson'] as string | undefined)?.trim()
     const pageId = (body['pageId'] as string | undefined)?.trim()
+    const userAgent = (body['userAgent'] as string | undefined)?.trim()
 
     if (!name || !platform || !cookieJson) {
       return NextResponse.json(
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
 
     let sessionData
     try {
-      sessionData = parseCookieInput(cookieJson)
+      sessionData = parseCookieInput(cookieJson, userAgent)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Cookie JSON không hợp lệ'
       return NextResponse.json({ data: null, error: msg }, { status: 400 })

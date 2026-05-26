@@ -49,6 +49,7 @@ export function AccountForm() {
           platform: form.platform,
           cookieJson: form.cookieJson.trim(),
           pageId: form.pageId.trim() || undefined,
+          userAgent: navigator.userAgent,
         }),
       })
       const json = await res.json() as { data: { _id: string; userId: string } | null; error: string | null }
