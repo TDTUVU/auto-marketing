@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!['facebook', 'instagram', 'tiktok'].includes(platform)) {
+    if (!['facebook', 'instagram', 'tiktok', 'twitter'].includes(platform)) {
       return NextResponse.json(
         { data: null, error: 'Platform không hợp lệ' },
         { status: 400 }

@@ -19,7 +19,7 @@ interface ImagePreview {
   url: string
 }
 
-export function PostForm({ accounts }: { accounts: Account[] }) {
+export function PostForm({ accounts, basePath = '/dashboard/facebook', redirectPath = 'posts' }: { accounts: Account[]; basePath?: string; redirectPath?: string }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(false)
@@ -113,7 +113,7 @@ export function PostForm({ accounts }: { accounts: Account[] }) {
       setError(errors.join('\n'))
     }
     if (successCount > 0) {
-      router.push('/dashboard/posts')
+      router.push(`${basePath}/${redirectPath}`)
       router.refresh()
     }
 

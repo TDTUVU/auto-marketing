@@ -26,7 +26,7 @@ interface CatalogListProps {
   categories: string[]
 }
 
-export function CatalogList({ products, accountMap, categories }: CatalogListProps) {
+export function CatalogList({ products, accountMap, categories, basePath = '/dashboard/facebook' }: CatalogListProps & { basePath?: string }) {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
@@ -90,7 +90,7 @@ export function CatalogList({ products, accountMap, categories }: CatalogListPro
             {products.length === 0 ? 'Chưa có sản phẩm nào' : 'Không tìm thấy sản phẩm phù hợp'}
           </p>
           {products.length === 0 && (
-            <Link href="/dashboard/catalog/new" className="mt-3 inline-block">
+            <Link href={`${basePath}/catalog/new`} className="mt-3 inline-block">
               <button className="px-3 py-1.5 text-xs rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50">
                 Thêm sản phẩm đầu tiên
               </button>
@@ -124,7 +124,7 @@ export function CatalogList({ products, accountMap, categories }: CatalogListPro
                   </div>
                   <div className="flex items-center gap-0.5">
                     <Link
-                      href={`/dashboard/catalog/${product._id}/edit`}
+                      href={`${basePath}/catalog/${product._id}/edit`}
                       className="p-1.5 rounded-lg text-zinc-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                       aria-label="Sửa sản phẩm"
                     >

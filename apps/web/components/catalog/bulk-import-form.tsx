@@ -72,7 +72,7 @@ function splitCSVLine(line: string): string[] {
   return result
 }
 
-export function BulkImportForm({ accounts }: { accounts: Account[] }) {
+export function BulkImportForm({ accounts, basePath = '/dashboard/facebook' }: { accounts: Account[]; basePath?: string }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [accountId, setAccountId] = useState(accounts[0]?._id ?? '')
@@ -138,7 +138,7 @@ export function BulkImportForm({ accounts }: { accounts: Account[] }) {
       setSuccess(`Đã import thành công ${json.data.count} sản phẩm!`)
       setRows([])
       setTimeout(() => {
-        router.push('/dashboard/catalog')
+        router.push(`${basePath}/catalog`)
         router.refresh()
       }, 1500)
     } catch {

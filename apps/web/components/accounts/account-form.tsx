@@ -8,14 +8,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { UserPlus } from 'lucide-react'
 
-export function AccountForm() {
+export function AccountForm({ basePath = '/dashboard/facebook', defaultPlatform = 'facebook' }: { basePath?: string; defaultPlatform?: string } = {}) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [form, setForm] = useState({
     name: '',
-    platform: 'facebook',
+    platform: defaultPlatform,
     cookieJson: '',
     pageId: '',
   })
@@ -61,7 +61,7 @@ export function AccountForm() {
 
       setSuccess(`Thêm thành công! User ID: ${json.data.userId}`)
       setTimeout(() => {
-        router.push('/dashboard/accounts')
+        router.push(`${basePath}/accounts`)
         router.refresh()
       }, 1500)
     } catch {
@@ -95,6 +95,7 @@ export function AccountForm() {
           <option value="facebook">Facebook</option>
           <option value="instagram">Instagram</option>
           <option value="tiktok">TikTok</option>
+          <option value="twitter">Twitter / X</option>
         </select>
       </div>
 

@@ -2,7 +2,7 @@ import { model, models, Schema, type Document, type Types } from 'mongoose'
 
 // Account
 export interface IAccount extends Document {
-  platform: 'facebook' | 'instagram' | 'tiktok'
+  platform: 'facebook' | 'instagram' | 'tiktok' | 'twitter'
   name: string
   encryptedSession: string
   cookiesPath?: string
@@ -12,7 +12,7 @@ export interface IAccount extends Document {
 
 const AccountSchema = new Schema<IAccount>(
   {
-    platform: { type: String, enum: ['facebook', 'instagram', 'tiktok'], required: true },
+    platform: { type: String, enum: ['facebook', 'instagram', 'tiktok', 'twitter'], required: true },
     name: { type: String, required: true },
     encryptedSession: { type: String, default: '' },
     cookiesPath: { type: String },

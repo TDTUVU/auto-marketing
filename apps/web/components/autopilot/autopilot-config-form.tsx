@@ -31,10 +31,12 @@ export function AutoPilotConfigForm({
   accounts,
   existingConfigs,
   productCount,
+  basePath = '/dashboard/facebook',
 }: {
   accounts: Account[]
   existingConfigs: Record<string, Config>
   productCount: Record<string, number>
+  basePath?: string
 }) {
   const router = useRouter()
   const [saving, setSaving] = useState<string | null>(null)
@@ -128,7 +130,7 @@ export function AutoPilotConfigForm({
                   {count === 0 && (
                     <>
                       {' — '}
-                      <Link href="/dashboard/catalog/new" className="text-blue-600 hover:underline">
+                      <Link href={`${basePath}/catalog/new`} className="text-blue-600 hover:underline">
                         Thêm sản phẩm
                       </Link>
                     </>

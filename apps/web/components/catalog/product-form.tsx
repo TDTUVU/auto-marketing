@@ -32,9 +32,11 @@ interface InitialData {
 export function ProductForm({
   accounts,
   initialData,
+  basePath = '/dashboard/facebook',
 }: {
   accounts: Account[]
   initialData?: InitialData
+  basePath?: string
 }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -109,7 +111,7 @@ export function ProductForm({
         setError(json.error ?? 'Có lỗi xảy ra')
         return
       }
-      router.push('/dashboard/catalog')
+      router.push(`${basePath}/catalog`)
       router.refresh()
     } catch {
       setError('Không thể kết nối server')

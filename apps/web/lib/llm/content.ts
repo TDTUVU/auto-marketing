@@ -7,7 +7,7 @@ Viết caption tự nhiên, phù hợp văn hóa Việt, có emoji vừa phải.
 Tone: thân thiện, gần gũi. Luôn có call-to-action cuối bài.`
 
 export interface ContentInput {
-  platform: 'facebook' | 'instagram'
+  platform: 'facebook' | 'instagram' | 'twitter' | 'tiktok'
   idea: string
   imageDescription?: string
   shopName?: string

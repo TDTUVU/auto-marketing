@@ -1,148 +1,76 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import {
-  FileText, Users, Package, Zap,
-  CheckCircle, XCircle, ArrowRight,
-} from 'lucide-react'
+import { Music2 } from 'lucide-react'
+import { FacebookIcon, TwitterIcon, InstagramIcon } from '@/components/icons/brand-icons'
 import { connectDB } from '@/lib/db'
-import { Post, Account, Product, AutoPilotConfig, AutomationLog } from '@/lib/db/schema'
+import { Account, Post, Product } from '@/lib/db/schema'
+import { platforms } from '@/lib/platforms'
 import { Badge } from '@/components/ui/badge'
 
-export default async function DashboardPage() {
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  Facebook: FacebookIcon, Twitter: TwitterIcon, Instagram: InstagramIcon, Music2,
+}
+
+export default async function PlatformHubPage() {
   await connectDB()
 
-  const [
-    totalPosts,
-    publishedPosts,
-    scheduledPosts,
-    failedPosts,
-    draftPosts,
-    totalAccounts,
-    totalProducts,
-    activeProducts,
-    autopilotEnabled,
-    recentLogs,
-  ] = await Promise.all([
-    Post.countDocuments(),
-    Post.countDocuments({ status: 'published' }),
-    Post.countDocuments({ status: 'scheduled' }),
-    Post.countDocuments({ status: 'failed' }),
-    Post.countDocuments({ status: 'draft' }),
-    Account.countDocuments(),
-    Product.countDocuments(),
-    Product.countDocuments({ isActive: true }),
-    AutoPilotConfig.countDocuments({ enabled: true }),
-    AutomationLog.find().sort({ timestamp: -1 }).limit(10).lean(),
+  const accountCounts = await Account.aggregate([
+    { $group: { _id: '$platform', count: { $sum: 1 } } },
   ])
+  const countMap: Record<string, number> = Object.fromEntries(
+    accountCounts.map((a: { _id: string; count: number }) => [a._id, a.count])
+  )
+
+  const totalPosts = await Post.countDocuments()
+  const totalProducts = await Product.countDocuments({ isActive: true })
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-zinc-900">Tổng quan</h1>
-        <p className="text-sm text-zinc-500 mt-0.5">Tình trạng hệ thống</p>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white border border-zinc-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-zinc-500 mb-2">
-            <FileText className="size-4" />
-            <span className="text-sm font-medium">Bài đăng</span>
-          </div>
-          <p className="text-2xl font-semibold text-zinc-900">{totalPosts}</p>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs">
-            <span className="text-green-600">{publishedPosts} đã đăng</span>
-            <span className="text-blue-600">{scheduledPosts} đã lên lịch</span>
-            {failedPosts > 0 && <span className="text-red-600">{failedPosts} thất bại</span>}
-            {draftPosts > 0 && <span className="text-zinc-400">{draftPosts} nháp</span>}
-          </div>
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="w-full max-w-2xl">
+        <div className="text-center mb-10">
+          <h1 className="text-2xl font-semibold text-zinc-900">Social Auto</h1>
+          <p className="text-sm text-zinc-500 mt-1">Chọn nền tảng để quản lý</p>
         </div>
 
-        <div className="bg-white border border-zinc-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-zinc-500 mb-2">
-            <Users className="size-4" />
-            <span className="text-sm font-medium">Tài khoản</span>
-          </div>
-          <p className="text-2xl font-semibold text-zinc-900">{totalAccounts}</p>
-          <p className="text-xs text-zinc-400 mt-2">Tài khoản đã kết nối</p>
-        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {platforms.map((platform) => {
+            const connected = countMap[platform.slug] ?? 0
+            const Icon = iconMap[platform.iconName]
 
-        <div className="bg-white border border-zinc-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-zinc-500 mb-2">
-            <Package className="size-4" />
-            <span className="text-sm font-medium">Sản phẩm</span>
-          </div>
-          <p className="text-2xl font-semibold text-zinc-900">{totalProducts}</p>
-          <div className="flex items-center gap-3 mt-2 text-xs">
-            <span className="text-green-600">{activeProducts} hoạt động</span>
-            <span className="text-zinc-400">{totalProducts - activeProducts} đã tắt</span>
-          </div>
-        </div>
-
-        <div className="bg-white border border-zinc-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-zinc-500 mb-2">
-            <Zap className="size-4" />
-            <span className="text-sm font-medium">Auto-pilot</span>
-          </div>
-          <p className="text-2xl font-semibold text-zinc-900">{autopilotEnabled}</p>
-          <div className="mt-2">
-            {autopilotEnabled > 0 ? (
-              <Badge variant="published">Đang bật</Badge>
-            ) : (
-              <Badge variant="draft">Chưa bật</Badge>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-900">Hoạt động gần đây</h2>
-        <Link
-          href="/dashboard/logs"
-          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
-        >
-          Xem tất cả <ArrowRight className="size-3" />
-        </Link>
-      </div>
-
-      {recentLogs.length === 0 ? (
-        <div className="text-center py-12 text-zinc-400">
-          <p className="text-sm">Chưa có hoạt động nào</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {recentLogs.map((log) => {
-            const id = log._id.toString()
             return (
-              <div
-                key={id}
-                className="bg-white border border-zinc-200 rounded-xl px-4 py-3 flex items-start gap-3"
-              >
-                <div className="pt-0.5">
-                  {log.success ? (
-                    <CheckCircle className="size-4 text-green-500" />
-                  ) : (
-                    <XCircle className="size-4 text-red-500" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant={log.success ? 'published' : 'failed'}>
-                      {log.action}
-                    </Badge>
-                    <span className="text-xs text-zinc-400">
-                      {new Date(log.timestamp).toLocaleString('vi-VN')}
-                    </span>
+              <Link key={platform.slug} href={`/dashboard/${platform.slug}`}>
+                <div className={`bg-white border rounded-xl p-6 hover:shadow-md transition-all cursor-pointer ${
+                  platform.available ? 'border-zinc-200 hover:border-zinc-300' : 'border-zinc-100 opacity-75 hover:opacity-100'
+                }`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`size-10 rounded-full ${platform.bgClass} flex items-center justify-center text-white`}>
+                      {Icon && <Icon className="size-5" />}
+                    </div>
+                    <div>
+                      <h2 className="font-semibold text-zinc-900">{platform.label}</h2>
+                      {platform.available ? (
+                        <span className="text-xs text-green-600">
+                          {connected > 0 ? `${connected} tài khoản kết nối` : 'Sẵn sàng sử dụng'}
+                        </span>
+                      ) : (
+                        <Badge variant="draft">Sắp ra mắt</Badge>
+                      )}
+                    </div>
                   </div>
-                  {log.detail && (
-                    <p className="text-sm text-zinc-600 mt-1 line-clamp-2">{log.detail}</p>
+
+                  {platform.available && connected > 0 && (
+                    <div className="flex gap-4 text-xs text-zinc-500 pt-2 border-t border-zinc-100">
+                      <span>{totalPosts} bài đăng</span>
+                      <span>{totalProducts} sản phẩm</span>
+                    </div>
                   )}
                 </div>
-              </div>
+              </Link>
             )
           })}
         </div>
-      )}
+      </div>
     </div>
   )
 }

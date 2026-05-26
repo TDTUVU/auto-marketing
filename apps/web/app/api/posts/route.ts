@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     let generated
     try {
       generated = await generateContent({
-        platform: 'facebook',
+        platform: account.platform,
         idea: idea.trim(),
         shopName: account.name,
         tone: tone as 'friendly' | 'professional' | 'fun',
@@ -97,7 +97,12 @@ export async function POST(request: Request) {
       images: jobImages,
     }
 
-    const jobId = await schedulePost(jobData, postAt)
+    let jobId = ''
+    try {
+      jobId = await schedulePost(jobData, postAt)
+    } catch (err) {
+      console.error('[/api/posts] schedulePost failed (Redis?):', err)
+    }
 
     return NextResponse.json({
       data: { postId: post._id.toString(), jobId },
