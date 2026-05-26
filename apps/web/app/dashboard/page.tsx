@@ -1,5 +1,2 @@
-import { redirect } from 'next/navigation'
-
-export default function DashboardPage() {
-  redirect('/dashboard/posts')
-}
+export const dynamic = 'force-dynamic'
+export { default } from '@/app/(dashboard)/page'
