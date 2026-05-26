@@ -3,7 +3,7 @@ import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
 import { postToFacebook, tokensFromSession, fetchFbTokens } from '@automation/core'
 import type { PhotoInput } from '@automation/core'
-import { loadSessionForAccount } from '../session'
+import { loadSessionForAccount, updateSessionTokens } from '../session'
 
 async function handlePostJob(data: PostJobData): Promise<void> {
   const { postId, accountId, content, images } = data
@@ -32,9 +32,18 @@ async function handlePostJob(data: PostJobData): Promise<void> {
 
   let tokens
   if (session.tokens?.fb_dtsg) {
+    console.log('[PostWorker] Using cached tokens')
     tokens = tokensFromSession(session.userId, session.tokens)
   } else {
+    console.log('[PostWorker] Fetching new tokens from Facebook...')
     tokens = await fetchFbTokens(session.cookies, session.userAgent)
+    await updateSessionTokens(accountId, {
+      fb_dtsg: tokens.fbDtsg,
+      lsd: tokens.lsd,
+      rev: tokens.rev,
+      hsi: '',
+    })
+    console.log('[PostWorker] Tokens cached to MongoDB')
   }
 
   const photos: PhotoInput[] = []

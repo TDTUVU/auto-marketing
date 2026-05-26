@@ -1,9 +1,9 @@
 import { readFile } from 'fs/promises'
 import { connectDB } from './db/index'
 import { Account } from './db/schema'
-import { decrypt } from './crypto'
+import { decrypt, encrypt } from './crypto'
 import { DEFAULT_USER_AGENT } from '@automation/core'
-import type { SessionData } from '@automation/core'
+import type { SessionData, SessionTokens } from '@automation/core'
 
 export async function loadSessionForAccount(accountId: string): Promise<SessionData | null> {
   await connectDB()
@@ -31,6 +31,17 @@ export async function loadSessionForAccount(accountId: string): Promise<SessionD
   }
 
   return null
+}
+
+export async function updateSessionTokens(accountId: string, tokens: SessionTokens): Promise<void> {
+  await connectDB()
+  const account = await Account.findById(accountId)
+  if (!account?.encryptedSession) return
+
+  const session = JSON.parse(decrypt(account.encryptedSession)) as SessionData
+  session.tokens = tokens
+  account.encryptedSession = encrypt(JSON.stringify(session))
+  await account.save()
 }
 
 export interface ParsedCookieInput {
