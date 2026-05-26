@@ -10,11 +10,13 @@ export default async function NewPostPage() {
   await connectDB()
   const accounts = await Account.find().lean()
 
-  const accountList = accounts.map((a) => ({
-    _id: a._id.toString(),
-    name: a.name,
-    platform: a.platform,
-  }))
+  const accountList = accounts
+    .filter((a) => !!a.encryptedSession)
+    .map((a) => ({
+      _id: a._id.toString(),
+      name: a.name,
+      platform: a.platform,
+    }))
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -32,11 +34,11 @@ export default async function NewPostPage() {
 
       {accountList.length === 0 ? (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-          Chưa có tài khoản nào. Chạy{' '}
-          <code className="bg-amber-100 px-1 rounded text-xs">
-            pnpm exec tsx --env-file=.env scripts/seed_account.ts
-          </code>{' '}
-          để thêm tài khoản bkshop.
+          Chưa có tài khoản nào có session hợp lệ.{' '}
+          <Link href="/dashboard/accounts/new" className="underline font-medium">
+            Thêm tài khoản mới
+          </Link>{' '}
+          và paste cookie từ trình duyệt.
         </div>
       ) : (
         <div className="bg-white border border-zinc-200 rounded-xl p-6">
