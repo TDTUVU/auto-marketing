@@ -3,7 +3,6 @@ import { connectDB } from '@/lib/db'
 import { Account } from '@/lib/db/schema'
 import { encrypt } from '@/lib/crypto'
 import { parseCookieInput } from '@/lib/session'
-import { fetchFbTokens } from '@automation/core'
 
 export async function GET() {
   await connectDB()
@@ -44,23 +43,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: null, error: msg }, { status: 400 })
     }
 
-    if (platform === 'facebook') {
-      try {
-        const tokens = await fetchFbTokens(sessionData.cookies, sessionData.userAgent)
-        sessionData.userId = tokens.userId
-        sessionData.tokens = {
-          fb_dtsg: tokens.fbDtsg,
-          lsd: tokens.lsd,
-          rev: tokens.rev,
-          hsi: '',
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Không thể xác thực cookie'
-        return NextResponse.json(
-          { data: null, error: `Cookie không hợp lệ hoặc đã hết hạn: ${msg}` },
-          { status: 400 }
-        )
-      }
+    if (platform === 'facebook' && !sessionData.userId) {
+      return NextResponse.json(
+        { data: null, error: 'Không tìm thấy cookie c_user — hãy đăng nhập Facebook rồi export lại cookie' },
+        { status: 400 }
+      )
     }
 
     const encryptedSession = encrypt(JSON.stringify(sessionData))
