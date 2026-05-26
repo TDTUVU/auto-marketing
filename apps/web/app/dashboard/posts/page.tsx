@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
 import { Plus, Clock, CheckCircle, XCircle, FileEdit } from 'lucide-react'
 import { connectDB } from '@/lib/db'

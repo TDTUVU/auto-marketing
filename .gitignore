@@ -22,7 +22,7 @@ cookies/
 scripts/intercept/captured_requests.json
 
 # Logs
-logs/
+/logs/
 *.log
 
 # OS
