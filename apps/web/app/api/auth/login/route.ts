@@ -16,7 +16,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Server chưa cấu hình JWT secret' }, { status: 500 })
     }
 
-    if (!body.password || body.password !== envPassword) {
+    const inputPassword = (body.password ?? '').trim()
+    const correctPassword = envPassword.trim().replace(/^["']|["']$/g, '')
+
+    if (!inputPassword || inputPassword !== correctPassword) {
+      console.error(`[auth/login] password mismatch — input length: ${inputPassword.length}, env length: ${correctPassword.length}`)
       return NextResponse.json({ error: 'Sai mật khẩu' }, { status: 401 })
     }
 
