@@ -6,6 +6,7 @@ import { connectDB } from '@/lib/db'
 import { Account, Post } from '@/lib/db/schema'
 import { Button } from '@/components/ui/button'
 import { DeleteAccountBtn } from '@/components/accounts/delete-account-btn'
+import { UpdateSessionBtn } from '@/components/accounts/update-session-btn'
 
 const platformIcon = {
   facebook: <Globe className="size-4 text-blue-600" />,
@@ -111,6 +112,7 @@ export default async function AccountsPage() {
                       {new Date(account.createdAt).toLocaleDateString('vi-VN')}
                     </span>
                   </div>
+                  <UpdateSessionBtn accountId={id} name={account.name} />
                   <DeleteAccountBtn accountId={id} name={account.name} />
                 </div>
               </div>
