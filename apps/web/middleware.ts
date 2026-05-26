@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { verifyToken, COOKIE_NAME } from '@/lib/auth'
+import { jwtVerify } from 'jose'
+
+const COOKIE_NAME = 'auth_token'
+
+function getSecret() {
+  const secret = process.env['JWT_SECRET'] ?? ''
+  return new TextEncoder().encode(secret)
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -19,13 +26,13 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await verifyToken(token)
+    await jwtVerify(token, getSecret())
     return NextResponse.next()
   } catch {
-    const url = new URL(pathname.startsWith('/api/') ? '/api/auth/logout' : '/login', request.url)
-    const response = pathname.startsWith('/api/')
-      ? NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      : NextResponse.redirect(url)
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const response = NextResponse.redirect(new URL('/login', request.url))
     response.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: '/' })
     return response
   }

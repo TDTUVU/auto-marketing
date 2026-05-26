@@ -4,8 +4,19 @@ import { signToken, COOKIE_NAME, TOKEN_MAX_AGE } from '@/lib/auth'
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { password?: string }
+    const envPassword = process.env['APP_PASSWORD']
 
-    if (!body.password || body.password !== process.env['APP_PASSWORD']) {
+    if (!envPassword) {
+      console.error('[auth/login] APP_PASSWORD env var is not set!')
+      return NextResponse.json({ error: 'Server chưa cấu hình mật khẩu' }, { status: 500 })
+    }
+
+    if (!process.env['JWT_SECRET']) {
+      console.error('[auth/login] JWT_SECRET env var is not set!')
+      return NextResponse.json({ error: 'Server chưa cấu hình JWT secret' }, { status: 500 })
+    }
+
+    if (!body.password || body.password !== envPassword) {
       return NextResponse.json({ error: 'Sai mật khẩu' }, { status: 401 })
     }
 
@@ -22,7 +33,7 @@ export async function POST(request: Request) {
 
     return response
   } catch (err) {
-    console.error('[/api/auth/login] error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('[auth/login] error:', err)
+    return NextResponse.json({ error: 'Lỗi server, kiểm tra logs' }, { status: 500 })
   }
 }
