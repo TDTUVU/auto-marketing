@@ -119,17 +119,30 @@ export async function generateContent(input: ContentInput): Promise<GeneratedCon
   return parseResponse(text)
 }
 
+const PLATFORM_LIMITS: Record<string, { maxChars: number; hashtagNote: string }> = {
+  twitter: { maxChars: 250, hashtagNote: '2-3 hashtags ngắn (tính vào giới hạn ký tự)' },
+  facebook: { maxChars: 2000, hashtagNote: '5-10 hashtags liên quan' },
+  instagram: { maxChars: 2000, hashtagNote: '10-20 hashtags liên quan' },
+  tiktok: { maxChars: 2000, hashtagNote: '5-10 hashtags liên quan' },
+}
+
 function buildPrompt(input: ContentInput): string {
+  const limits = PLATFORM_LIMITS[input.platform] ?? PLATFORM_LIMITS['facebook']!
+
+  const charLimit = input.platform === 'twitter'
+    ? `\n⚠️ GIỚI HẠN: Caption + hashtags TỔNG CỘNG phải dưới ${limits.maxChars} ký tự. Viết ngắn gọn, súc tích.`
+    : ''
+
   return `
 Platform: ${input.platform}
 Ý tưởng: ${input.idea}
 ${input.imageDescription ? `Mô tả ảnh: ${input.imageDescription}` : ''}
 ${input.shopName ? `Tên cửa hàng: ${input.shopName}` : ''}
-Tone: ${input.tone ?? 'friendly'}
+Tone: ${input.tone ?? 'friendly'}${charLimit}
 
 Hãy tạo:
 1. Caption hoàn chỉnh (phù hợp độ dài của ${input.platform})
-2. 5-10 hashtags liên quan
+2. ${limits.hashtagNote}
 3. Thời điểm đăng bài tốt nhất trong ngày
 
 Trả về JSON với format: { "caption": "...", "hashtags": [...], "suggestedPostTime": "..." }

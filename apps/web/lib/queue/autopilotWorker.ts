@@ -56,10 +56,16 @@ async function handleAutoPilotTick(): Promise<void> {
         tone: config.tone,
       })
 
-      const hashtagLine = generated.hashtags.join(' ')
-      const fullContent = hashtagLine
-        ? `${generated.caption}\n\n${hashtagLine}`
-        : generated.caption
+      let fullContent: string
+      if (account.platform === 'twitter') {
+        // Twitter: hashtags đã nằm trong caption, không ghép thêm để tránh vượt 280 ký tự
+        fullContent = generated.caption
+      } else {
+        const hashtagLine = generated.hashtags.join(' ')
+        fullContent = hashtagLine
+          ? `${generated.caption}\n\n${hashtagLine}`
+          : generated.caption
+      }
 
       const imageFilenames: string[] = product.imageUrls ?? []
       const jobImages: ImageJobData[] = []

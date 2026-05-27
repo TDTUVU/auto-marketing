@@ -54,10 +54,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ data: null, error: 'Content generation failed' }, { status: 500 })
     }
 
-    const hashtagLine = generated.hashtags.join(' ')
-    const fullContent = hashtagLine
-      ? `${generated.caption}\n\n${hashtagLine}`
-      : generated.caption
+    let fullContent: string
+    if (account.platform === 'twitter') {
+      fullContent = generated.caption
+    } else {
+      const hashtagLine = generated.hashtags.join(' ')
+      fullContent = hashtagLine
+        ? `${generated.caption}\n\n${hashtagLine}`
+        : generated.caption
+    }
 
     const imageFilenames: string[] = []
     const jobImages: ImageJobData[] = []
