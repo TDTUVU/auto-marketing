@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { connectDB } from '@/lib/db'
 import { Post } from '@/lib/db/schema'
-import { scheduleCommentPoll } from '@/lib/queue/jobs'
+import { scheduleCommentPoll, removeCommentPoll } from '@/lib/queue/jobs'
 
 const RequestSchema = z.object({
   postId: z.string().min(1),
@@ -65,6 +65,40 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error('[/api/comments] unexpected error:', err)
+    return NextResponse.json({ data: null, error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+const DeleteSchema = z.object({ postId: z.string().min(1) })
+
+export async function DELETE(request: Request) {
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ data: null, error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const parsed = DeleteSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ data: null, error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const { postId } = parsed.data
+
+  try {
+    await connectDB()
+    const post = await Post.findById(postId)
+    if (!post) {
+      return NextResponse.json({ data: null, error: 'Post not found' }, { status: 404 })
+    }
+
+    await removeCommentPoll(postId)
+    await Post.findByIdAndUpdate(postId, { autoReplyEnabled: false })
+
+    return NextResponse.json({ data: { postId }, error: null })
+  } catch (err) {
+    console.error('[/api/comments DELETE] unexpected error:', err)
     return NextResponse.json({ data: null, error: 'Internal server error' }, { status: 500 })
   }
 }

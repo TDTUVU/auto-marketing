@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { MessageSquare, X } from 'lucide-react'
+import { MessageSquare, X, Loader2 } from 'lucide-react'
 
 export function AutoReplyBtn({ postId, hasPostUrl, isTracking = false }: { postId: string; hasPostUrl: boolean; isTracking?: boolean }) {
-  const [status, setStatus] = useState<'idle' | 'input' | 'loading' | 'done' | 'error'>(isTracking ? 'done' : 'idle')
+  const [status, setStatus] = useState<'idle' | 'input' | 'loading' | 'done' | 'stopping' | 'error'>(isTracking ? 'done' : 'idle')
   const [manualUrl, setManualUrl] = useState('')
 
   async function enable(postUrl?: string) {
@@ -29,6 +29,26 @@ export function AutoReplyBtn({ postId, hasPostUrl, isTracking = false }: { postI
     }
   }
 
+  async function disable() {
+    setStatus('stopping')
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+      })
+      const json = await res.json() as { error: string | null }
+      if (!res.ok || json.error) {
+        alert(typeof json.error === 'string' ? json.error : 'Lỗi không xác định')
+        setStatus('done')
+      } else {
+        setStatus('idle')
+      }
+    } catch {
+      setStatus('done')
+    }
+  }
+
   function handleClick() {
     if (hasPostUrl) {
       enable()
@@ -46,10 +66,21 @@ export function AutoReplyBtn({ postId, hasPostUrl, isTracking = false }: { postI
     enable(url)
   }
 
-  if (status === 'done') {
+  if (status === 'done' || status === 'stopping') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-        <MessageSquare className="size-3" /> Đang theo dõi
+      <span className="inline-flex items-center gap-1.5 text-xs text-green-600 font-medium">
+        <MessageSquare className="size-3" />
+        Đang theo dõi
+        <button
+          onClick={disable}
+          disabled={status === 'stopping'}
+          title="Dừng theo dõi"
+          className="ml-0.5 text-zinc-400 hover:text-red-500 disabled:opacity-40 transition-colors"
+        >
+          {status === 'stopping'
+            ? <Loader2 className="size-3 animate-spin" />
+            : <X className="size-3" />}
+        </button>
       </span>
     )
   }

@@ -80,6 +80,16 @@ export async function scheduleCommentPoll(data: CommentJobData): Promise<string>
   return job.id ?? ''
 }
 
+export async function removeCommentPoll(postId: string): Promise<void> {
+  const repeatables = await getCommentQueue().getRepeatableJobs()
+  for (const job of repeatables) {
+    if (job.id === `comment-poll-${postId}`) {
+      await getCommentQueue().removeRepeatableByKey(job.key)
+      return
+    }
+  }
+}
+
 export async function getTrackedPostIds(): Promise<Set<string>> {
   const repeatables = await getCommentQueue().getRepeatableJobs()
   const ids = new Set<string>()
