@@ -1,8 +1,10 @@
 import IORedis from 'ioredis'
-import { getPostQueue, startAutoPilotScheduler } from './lib/queue/jobs'
+import { getPostQueue, startAutoPilotScheduler, scheduleCommentPoll } from './lib/queue/jobs'
 import { worker } from './lib/queue/worker'
 import { commentWorker } from './lib/queue/commentWorker'
 import { autopilotWorker } from './lib/queue/autopilotWorker'
+import { connectDB } from './lib/db/index'
+import { Post } from './lib/db/schema'
 
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379'
 
@@ -41,6 +43,40 @@ autopilotWorker.on('failed', (job, err) => console.error(`[AutoPilotWorker] Job 
 startAutoPilotScheduler()
   .then(() => console.log('[AutoPilot] Scheduler registered (every 15 min)'))
   .catch((err) => console.error('[AutoPilot] Failed to register scheduler:', err.message))
+
+// Restore comment poll jobs sau mỗi lần restart (worker hoặc Redis)
+async function restoreCommentJobs() {
+  await connectDB()
+  const posts = await Post.find({
+    autoReplyEnabled: true,
+    status: 'published',
+    platformPostId: { $exists: true, $ne: '' },
+  }).select('_id accountId platformPostId content').lean()
+
+  if (posts.length === 0) {
+    console.log('[CommentRestore] No active auto-reply posts to restore')
+    return
+  }
+
+  let restored = 0
+  for (const post of posts) {
+    try {
+      await scheduleCommentPoll({
+        postId: post._id.toString(),
+        accountId: post.accountId.toString(),
+        postUrl: post.platformPostId!,
+        postContent: post.content,
+      })
+      restored++
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[CommentRestore] Failed to restore post ${post._id}:`, msg)
+    }
+  }
+  console.log(`[CommentRestore] Restored ${restored}/${posts.length} comment poll jobs`)
+}
+
+restoreCommentJobs().catch((err) => console.error('[CommentRestore] Error:', err.message))
 
 console.log('[Worker] Post + Comment + AutoPilot workers started — waiting for jobs...')
 
