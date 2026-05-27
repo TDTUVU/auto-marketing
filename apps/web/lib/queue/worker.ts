@@ -2,15 +2,75 @@ import { connectDB } from '../db/index'
 import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
 import { postToFacebook, tokensFromSession, fetchFbTokens } from '@automation/core'
-import type { PhotoInput } from '@automation/core'
+import { postToTwitter, extractTwitterTokens } from '@automation/core'
+import type { PhotoInput, AutomationResult, SessionData } from '@automation/core'
 import { loadSessionForAccount, updateSessionTokens } from '../session'
+
+async function handleFacebookPost(
+  accountId: string,
+  content: string,
+  photos: PhotoInput[],
+  session: SessionData,
+  pageId?: string
+): Promise<AutomationResult> {
+  let tokens
+  if (session.tokens?.fb_dtsg) {
+    console.log('[PostWorker:fb] Using cached tokens')
+    tokens = tokensFromSession(session.userId, session.tokens)
+  } else {
+    console.log('[PostWorker:fb] Fetching new tokens from Facebook...')
+    tokens = await fetchFbTokens(session.cookies, session.userAgent)
+    await updateSessionTokens(accountId, {
+      fb_dtsg: tokens.fbDtsg,
+      lsd: tokens.lsd,
+      rev: tokens.rev,
+      hsi: '',
+    })
+  }
+
+  let result = await postToFacebook(session.cookies, session.userAgent, tokens, {
+    text: content,
+    photos,
+    pageId,
+  })
+
+  if (!result.success && result.error?.includes('1357032') && session.tokens?.fb_dtsg) {
+    console.log('[PostWorker:fb] Cached tokens failed, fetching fresh tokens...')
+    tokens = await fetchFbTokens(session.cookies, session.userAgent)
+    await updateSessionTokens(accountId, {
+      fb_dtsg: tokens.fbDtsg,
+      lsd: tokens.lsd,
+      rev: tokens.rev,
+      hsi: '',
+    })
+    result = await postToFacebook(session.cookies, session.userAgent, tokens, {
+      text: content,
+      photos,
+      pageId,
+    })
+  }
+
+  return result
+}
+
+async function handleTwitterPost(
+  content: string,
+  photos: PhotoInput[],
+  session: SessionData
+): Promise<AutomationResult> {
+  const tokens = extractTwitterTokens(session.cookies)
+  return postToTwitter(session.cookies, session.userAgent, tokens, {
+    text: content,
+    photos,
+  })
+}
 
 async function handlePostJob(data: PostJobData): Promise<void> {
   const { postId, accountId, content, images } = data
 
   await connectDB()
 
-  console.log('[PostWorker] processing job — accountId:', accountId, 'length:', accountId.length)
+  console.log('[PostWorker] processing job — accountId:', accountId)
 
   const account = await Account.findById(accountId)
   if (!account) {
@@ -30,60 +90,25 @@ async function handlePostJob(data: PostJobData): Promise<void> {
     throw new Error(`Session not found for account: ${accountId}`)
   }
 
-  let tokens
-  if (session.tokens?.fb_dtsg) {
-    console.log('[PostWorker] Using cached tokens')
-    tokens = tokensFromSession(session.userId, session.tokens)
-  } else {
-    console.log('[PostWorker] Fetching new tokens from Facebook...')
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-    await updateSessionTokens(accountId, {
-      fb_dtsg: tokens.fbDtsg,
-      lsd: tokens.lsd,
-      rev: tokens.rev,
-      hsi: '',
-    })
-    console.log('[PostWorker] Tokens cached to MongoDB')
-  }
-
-  // Nếu dùng cached tokens mà fail → retry bằng fresh tokens
-  const tryWithFreshTokens = async () => {
-    console.log('[PostWorker] Cached tokens failed, fetching fresh tokens...')
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-    await updateSessionTokens(accountId, {
-      fb_dtsg: tokens.fbDtsg,
-      lsd: tokens.lsd,
-      rev: tokens.rev,
-      hsi: '',
-    })
-    console.log('[PostWorker] Fresh tokens saved')
-  }
-
   const photos: PhotoInput[] = []
   if (images?.length) {
     console.log(`[PostWorker] loading ${images.length} image(s) from job data...`)
     for (const img of images) {
       const buffer = Buffer.from(img.base64, 'base64')
       photos.push({ buffer, filename: img.filename, mimeType: img.mimeType })
-      console.log(`[PostWorker] loaded: ${img.filename} (${buffer.length} bytes)`)
     }
-  } else {
-    console.log('[PostWorker] no images for this post')
   }
 
-  let result = await postToFacebook(session.cookies, session.userAgent, tokens, {
-    text: content,
-    photos,
-    pageId: account.pageId,
-  })
-
-  if (!result.success && result.error?.includes('1357032') && session.tokens?.fb_dtsg) {
-    await tryWithFreshTokens()
-    result = await postToFacebook(session.cookies, session.userAgent, tokens, {
-      text: content,
-      photos,
-      pageId: account.pageId,
-    })
+  let result: AutomationResult
+  switch (account.platform) {
+    case 'facebook':
+      result = await handleFacebookPost(accountId, content, photos, session, account.pageId)
+      break
+    case 'twitter':
+      result = await handleTwitterPost(content, photos, session)
+      break
+    default:
+      result = { success: false, error: `Platform "${account.platform}" chưa hỗ trợ`, timestamp: new Date() }
   }
 
   if (result.success) {
@@ -101,7 +126,7 @@ async function handlePostJob(data: PostJobData): Promise<void> {
 
   await AutomationLog.create({
     postId,
-    action: 'post_to_facebook',
+    action: `post_to_${account.platform}`,
     success: result.success,
     detail: result.success ? 'Posted successfully' : result.error,
     timestamp: result.timestamp,

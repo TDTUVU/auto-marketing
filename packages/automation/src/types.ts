@@ -1,4 +1,4 @@
-export type Platform = 'facebook' | 'instagram' | 'tiktok'
+export type Platform = 'facebook' | 'twitter' | 'instagram' | 'tiktok'
 
 export interface Account {
   id: string
@@ -42,12 +42,18 @@ export interface SessionTokens {
   user_id?: string
 }
 
+export interface TwitterTokens {
+  ct0: string
+  bearerToken: string
+}
+
 export interface SessionData {
   userId: string
   cookies: CookieData[]
   userAgent: string
   lastRefreshed: Date
   tokens?: SessionTokens
+  twitterTokens?: TwitterTokens
 }
 
 export interface CookieData {

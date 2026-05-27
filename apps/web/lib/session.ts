@@ -66,8 +66,10 @@ export function parseCookieInput(raw: string, userAgent?: string): SessionData {
     throw new Error('Mỗi cookie cần có name, value, domain')
   }
 
+  // Facebook: userId từ c_user; Twitter: userId từ twid (u%3D1234567890)
   const cUid = cookies.find((c) => c.name === 'c_user')
-  const userId = cUid?.value ?? ''
+  const twid = cookies.find((c) => c.name === 'twid')
+  const userId = cUid?.value ?? (twid ? decodeURIComponent(twid.value).replace('u=', '') : '')
 
   return {
     userId,
