@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MessageSquare, X } from 'lucide-react'
 
-export function AutoReplyBtn({ postId, hasPostUrl }: { postId: string; hasPostUrl: boolean }) {
-  const [status, setStatus] = useState<'idle' | 'input' | 'loading' | 'done' | 'error'>('idle')
+export function AutoReplyBtn({ postId, hasPostUrl, isTracking = false }: { postId: string; hasPostUrl: boolean; isTracking?: boolean }) {
+  const [status, setStatus] = useState<'idle' | 'input' | 'loading' | 'done' | 'error'>(isTracking ? 'done' : 'idle')
   const [manualUrl, setManualUrl] = useState('')
 
   async function enable(postUrl?: string) {

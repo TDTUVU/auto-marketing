@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Plus, Clock, CheckCircle, XCircle, FileEdit } from 'lucide-react'
 import { connectDB } from '@/lib/db'
 import { Post, Account } from '@/lib/db/schema'
+import { getTrackedPostIds } from '@/lib/queue/jobs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AutoReplyBtn } from '@/components/posts/auto-reply-btn'
@@ -24,7 +25,10 @@ const statusLabel = {
 
 export default async function PostsPage() {
   await connectDB()
-  const posts = await Post.find().sort({ createdAt: -1 }).limit(50).lean()
+  const [posts, trackedIds] = await Promise.all([
+    Post.find().sort({ createdAt: -1 }).limit(50).lean(),
+    getTrackedPostIds(),
+  ])
   const accountIds = [...new Set(posts.map((p) => p.accountId.toString()))]
   const accounts = await Account.find({ _id: { $in: accountIds } }).lean()
   const accountMap = Object.fromEntries(accounts.map((a) => [a._id.toString(), a.name]))
@@ -104,7 +108,7 @@ export default async function PostsPage() {
                         {statusLabel[status]}
                       </span>
                     </Badge>
-                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} />}
+                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} isTracking={trackedIds.has(id)} />}
                   </div>
                 </div>
                 {post.errorMessage && (

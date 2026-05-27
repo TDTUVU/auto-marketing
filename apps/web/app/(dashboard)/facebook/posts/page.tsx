@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Plus, Clock, CheckCircle, XCircle, FileEdit } from 'lucide-react'
 import { connectDB } from '@/lib/db'
 import { Post, Account } from '@/lib/db/schema'
+import { getTrackedPostIds } from '@/lib/queue/jobs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AutoReplyBtn } from '@/components/posts/auto-reply-btn'
@@ -27,7 +28,10 @@ export default async function PostsPage() {
   const fbAccounts = await Account.find({ platform: 'facebook' }).select('_id name').lean()
   const fbAccountIds = fbAccounts.map((a) => a._id)
   const accountMap = Object.fromEntries(fbAccounts.map((a) => [a._id.toString(), a.name]))
-  const posts = await Post.find({ accountId: { $in: fbAccountIds } }).sort({ createdAt: -1 }).limit(50).lean()
+  const [posts, trackedIds] = await Promise.all([
+    Post.find({ accountId: { $in: fbAccountIds } }).sort({ createdAt: -1 }).limit(50).lean(),
+    getTrackedPostIds(),
+  ])
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -92,7 +96,7 @@ export default async function PostsPage() {
                     <Badge variant={status}>
                       <span className="flex items-center gap-1">{statusIcon[status]}{statusLabel[status]}</span>
                     </Badge>
-                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} />}
+                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} isTracking={trackedIds.has(id)} />}
                   </div>
                 </div>
                 {post.errorMessage && (

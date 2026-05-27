@@ -80,6 +80,16 @@ export async function scheduleCommentPoll(data: CommentJobData): Promise<string>
   return job.id ?? ''
 }
 
+export async function getTrackedPostIds(): Promise<Set<string>> {
+  const repeatables = await getCommentQueue().getRepeatableJobs()
+  const ids = new Set<string>()
+  for (const job of repeatables) {
+    const match = job.id?.match(/^comment-poll-(.+)$/)
+    if (match) ids.add(match[1]!)
+  }
+  return ids
+}
+
 export interface AutoPilotJobData {
   configId: string
 }

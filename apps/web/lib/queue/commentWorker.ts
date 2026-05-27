@@ -39,6 +39,11 @@ async function handleCommentJob(data: CommentJobData): Promise<void> {
     tokens = await fetchFbTokens(session.cookies, session.userAgent)
   }
 
+  const refreshTokens = async () => {
+    console.log('[CommentWorker] Refreshing tokens...')
+    tokens = await fetchFbTokens(session.cookies, session.userAgent)
+  }
+
   const comments = await fetchPostComments(session, postUrl)
 
   const existingReplied = new Set(
@@ -87,13 +92,24 @@ async function handleCommentJob(data: CommentJobData): Promise<void> {
       continue
     }
 
-    const result = await createComment(
+    let result = await createComment(
       session.cookies,
       session.userAgent,
       tokens,
       comment.feedbackId,
       replyResult.reply
     )
+
+    if (!result.success && result.error?.includes('1357032')) {
+      await refreshTokens()
+      result = await createComment(
+        session.cookies,
+        session.userAgent,
+        tokens,
+        comment.feedbackId,
+        replyResult.reply
+      )
+    }
 
     if (result.success) {
       await Comment.findOneAndUpdate(

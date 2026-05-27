@@ -46,6 +46,19 @@ async function handlePostJob(data: PostJobData): Promise<void> {
     console.log('[PostWorker] Tokens cached to MongoDB')
   }
 
+  // Nếu dùng cached tokens mà fail → retry bằng fresh tokens
+  const tryWithFreshTokens = async () => {
+    console.log('[PostWorker] Cached tokens failed, fetching fresh tokens...')
+    tokens = await fetchFbTokens(session.cookies, session.userAgent)
+    await updateSessionTokens(accountId, {
+      fb_dtsg: tokens.fbDtsg,
+      lsd: tokens.lsd,
+      rev: tokens.rev,
+      hsi: '',
+    })
+    console.log('[PostWorker] Fresh tokens saved')
+  }
+
   const photos: PhotoInput[] = []
   if (images?.length) {
     console.log(`[PostWorker] loading ${images.length} image(s) from job data...`)
@@ -58,11 +71,20 @@ async function handlePostJob(data: PostJobData): Promise<void> {
     console.log('[PostWorker] no images for this post')
   }
 
-  const result = await postToFacebook(session.cookies, session.userAgent, tokens, {
+  let result = await postToFacebook(session.cookies, session.userAgent, tokens, {
     text: content,
     photos,
     pageId: account.pageId,
   })
+
+  if (!result.success && result.error?.includes('1357032') && session.tokens?.fb_dtsg) {
+    await tryWithFreshTokens()
+    result = await postToFacebook(session.cookies, session.userAgent, tokens, {
+      text: content,
+      photos,
+      pageId: account.pageId,
+    })
+  }
 
   if (result.success) {
     await Post.findByIdAndUpdate(postId, {
