@@ -59,8 +59,8 @@ export function AutoReplyBtn({ postId, hasPostUrl, isTracking = false }: { postI
 
   function submitManualUrl() {
     const url = manualUrl.trim()
-    if (!url.includes('facebook.com')) {
-      alert('Vui lòng nhập URL bài viết Facebook hợp lệ')
+    if (!url.includes('facebook.com') && !url.includes('x.com') && !url.includes('twitter.com')) {
+      alert('Vui lòng nhập URL bài viết hợp lệ (Facebook hoặc Twitter/X)')
       return
     }
     enable(url)

@@ -6,6 +6,7 @@ import { connectDB } from '@/lib/db'
 import { Post, Account } from '@/lib/db/schema'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { AutoReplyBtn } from '@/components/posts/auto-reply-btn'
 
 const statusIcon = {
   draft: <FileEdit className="size-3.5" />,
@@ -91,9 +92,12 @@ export default async function TweetsPage() {
                       </div>
                     )}
                   </div>
-                  <Badge variant={status}>
-                    <span className="flex items-center gap-1">{statusIcon[status]}{statusLabel[status]}</span>
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant={status}>
+                      <span className="flex items-center gap-1">{statusIcon[status]}{statusLabel[status]}</span>
+                    </Badge>
+                    {status === 'published' && <AutoReplyBtn postId={id} hasPostUrl={!!post.platformPostId} isTracking={post.autoReplyEnabled ?? false} />}
+                  </div>
                 </div>
                 {post.errorMessage && (
                   <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-1.5">{post.errorMessage}</p>
