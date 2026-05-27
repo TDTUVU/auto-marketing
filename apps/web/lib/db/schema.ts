@@ -33,6 +33,7 @@ export interface IPost extends Document {
   publishedAt?: Date
   platformPostId?: string
   errorMessage?: string
+  autoReplyEnabled: boolean
   createdAt: Date
 }
 
@@ -50,6 +51,7 @@ const PostSchema = new Schema<IPost>(
     publishedAt: Date,
     platformPostId: String,
     errorMessage: String,
+    autoReplyEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 )

@@ -57,6 +57,8 @@ export async function POST(request: Request) {
       postContent: post.content,
     })
 
+    await Post.findByIdAndUpdate(postId, { autoReplyEnabled: true })
+
     return NextResponse.json({
       data: { postId: post._id.toString(), jobId, pollInterval: '5 phút' },
       error: null,
