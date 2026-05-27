@@ -116,6 +116,7 @@ async function handlePostJob(data: PostJobData): Promise<void> {
         postUrl: result.postUrl,
         postContent: content,
       })
+      await Post.findByIdAndUpdate(postId, { autoReplyEnabled: true })
       console.log(`[PostWorker] Auto-reply scheduled for post ${postId}`)
     }
   }

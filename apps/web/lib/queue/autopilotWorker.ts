@@ -50,7 +50,7 @@ async function handleAutoPilotTick(): Promise<void> {
       if (!account) continue
 
       const generated = await generateContent({
-        platform: 'facebook',
+        platform: account.platform as 'facebook' | 'instagram' | 'twitter' | 'tiktok',
         idea: buildProductIdea(product.name, product.description, product.price),
         shopName: account.name,
         tone: config.tone,
