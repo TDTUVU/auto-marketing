@@ -2,67 +2,155 @@ import { chromium } from 'playwright'
 import type { CookieData, SessionData } from '../types.js'
 
 export interface CommentData {
-  feedbackId: string   // Facebook internal ID dùng cho createComment()
+  feedbackId: string
   authorId: string
   authorName: string
   text: string
   hasOwnerReply: boolean
 }
 
-/** Parse một GraphQL response blob, tìm comment nodes */
-function extractCommentsFromJson(
-  json: Record<string, unknown>,
+/**
+ * Extract comments directly from raw HTML.
+ * Facebook SSR embeds comment data in inline script tags with structure:
+ *   "feedback":{"id":"ZmVlZGJh..."} ... "body":{"text":"..."} ... "__typename":"Comment"
+ * __typename appears at the END of each comment node.
+ */
+/**
+ * Extract the JSON string value starting at position `pos` (after the opening quote).
+ * Returns the raw string content and the position after the closing quote.
+ */
+function extractJsonString(html: string, pos: number): { value: string; end: number } | null {
+  let i = pos
+  let raw = ''
+  while (i < html.length) {
+    const ch = html[i]!
+    if (ch === '\\' && i + 1 < html.length) {
+      raw += ch + html[i + 1]!
+      i += 2
+    } else if (ch === '"') {
+      return { value: raw, end: i + 1 }
+    } else {
+      raw += ch
+      i++
+    }
+  }
+  return null
+}
+
+function extractCommentsFromHtml(html: string, ownerId: string): CommentData[] {
+  const results: CommentData[] = []
+  const seen = new Set<string>()
+  const bodyMarker = '"body":{"text":"'
+  let pos = 0
+  let matchIndex = 0
+
+  while (true) {
+    const bodyIdx = html.indexOf(bodyMarker, pos)
+    if (bodyIdx === -1) break
+    pos = bodyIdx + bodyMarker.length
+
+    // Extract the text value
+    const extracted = extractJsonString(html, pos)
+    if (!extracted) continue
+
+    matchIndex++
+    let text: string
+    try {
+      text = JSON.parse(`"${extracted.value}"`) as string
+    } catch {
+      text = extracted.value
+    }
+
+    // Look backwards for feedback.id — presence of feedback.id confirms this is a comment
+    const beforeStart = Math.max(0, bodyIdx - 5000)
+    const beforeWindow = html.slice(beforeStart, bodyIdx)
+    const feedbackMatches = [...beforeWindow.matchAll(/"feedback":\{"id":"([^"]+)"/g)]
+
+    if (feedbackMatches.length === 0 || !text) continue
+
+    // Deduplicate by text — Facebook embeds same comment twice with different feedbackIds
+    if (seen.has(text)) continue
+    seen.add(text)
+
+    const feedbackId = feedbackMatches[feedbackMatches.length - 1]![1]!
+    console.log(`[extractComments] comment: "${text.slice(0, 50)}" feedbackId=${feedbackId.slice(0, 40)}...`)
+
+    // author
+    const authorMatch = beforeWindow.match(/"author":\{[^}]*?"id":"(\d+)"[^}]*?"name":"((?:[^"\\]|\\.)*)"/s)
+    const authorId = authorMatch?.[1] ?? ''
+    let authorName = authorMatch?.[2] ?? ''
+    if (authorName) {
+      try { authorName = JSON.parse(`"${authorName}"`) as string } catch { /* keep raw */ }
+    }
+
+    if (authorId && authorId === ownerId) continue
+
+    results.push({ feedbackId, authorId, authorName, text, hasOwnerReply: false })
+  }
+
+  return results
+}
+
+/**
+ * Recursive search qua parsed JSON (cho GraphQL responses).
+ */
+function deepFindComments(
+  obj: unknown,
   ownerId: string,
-  out: Map<string, CommentData>
+  out: Map<string, CommentData>,
+  depth = 0
 ): void {
-  // Facebook có nhiều query shape khác nhau — thử các path phổ biến
-  const candidates: unknown[] = [
-    // CometUFICommentsProviderQuery
-    (json['data'] as Record<string, unknown> | undefined)?.['feedback'],
-    // PolarisPostFeedback
-    (json['data'] as Record<string, unknown> | undefined)?.['node'],
-  ]
+  if (!obj || typeof obj !== 'object' || depth > 20) return
 
-  for (const candidate of candidates) {
-    const feedback = candidate as Record<string, unknown> | undefined
-    if (!feedback) continue
+  if (Array.isArray(obj)) {
+    for (const item of obj) deepFindComments(item, ownerId, out, depth + 1)
+    return
+  }
 
-    const displayComments = (
-      (feedback['display_comments'] ?? feedback['ufi_summary_and_actions_renderer']) as Record<string, unknown> | undefined
-    )
+  const record = obj as Record<string, unknown>
 
-    if (!displayComments) continue
+  const id = record['id'] as string | undefined
+  const author = record['author'] as Record<string, unknown> | undefined
+  const body = record['body'] as Record<string, unknown> | undefined
+  const feedback = record['feedback'] as Record<string, unknown> | undefined
 
-    const edges = displayComments['edges'] as Array<Record<string, unknown>> | undefined
-    if (!Array.isArray(edges)) continue
+  if (body && (id ?? feedback)) {
+    const authorId = (author?.['id'] ?? '') as string
+    const authorName = (author?.['name'] ?? '') as string
+    const text = (body['text'] ?? '') as string
+    const commentFeedbackId = (feedback?.['id'] ?? id ?? '') as string
 
-    for (const edge of edges) {
-      const node = edge['node'] as Record<string, unknown> | undefined
-      if (!node) continue
-
-      const feedbackId = node['id'] as string | undefined
-      if (!feedbackId) continue
-
-      const author = node['author'] as Record<string, unknown> | undefined
-      const authorId = (author?.['id'] ?? '') as string
-      const authorName = (author?.['name'] ?? '') as string
-
-      const body = node['body'] as Record<string, unknown> | undefined
-      const text = (body?.['text'] ?? '') as string
-
-      // Kiểm tra owner đã reply chưa
-      const replies = node['replies'] as Record<string, unknown> | undefined
-      const replyEdges = replies?.['edges'] as Array<Record<string, unknown>> | undefined
-      const hasOwnerReply = replyEdges?.some((re) => {
-        const rn = re['node'] as Record<string, unknown> | undefined
+    if (text && commentFeedbackId && authorId !== ownerId) {
+      const replies = record['replies'] as Record<string, unknown> | undefined
+      const replyEdges = (replies?.['edges'] ?? replies?.['nodes']) as Array<Record<string, unknown>> | undefined
+      const hasOwnerReply = Array.isArray(replyEdges) && replyEdges.some((re) => {
+        const rn = (re['node'] ?? re) as Record<string, unknown> | undefined
         const ra = rn?.['author'] as Record<string, unknown> | undefined
         return (ra?.['id'] as string) === ownerId
-      }) ?? false
+      })
 
-      if (authorId && text) {
-        out.set(feedbackId, { feedbackId, authorId, authorName, text, hasOwnerReply })
+      out.set(commentFeedbackId, { feedbackId: commentFeedbackId, authorId, authorName, text, hasOwnerReply })
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    deepFindComments(value, ownerId, out, depth + 1)
+  }
+}
+
+function normalizePostUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.pathname === '/permalink.php') {
+      const storyFbid = parsed.searchParams.get('story_fbid')
+      const id = parsed.searchParams.get('id')
+      if (storyFbid && id) {
+        return `https://www.facebook.com/${id}/posts/${storyFbid}`
       }
     }
+    return url
+  } catch {
+    return url
   }
 }
 
@@ -79,14 +167,13 @@ function cookiesToPlaywright(cookies: CookieData[]) {
   }))
 }
 
-/**
- * Mở post URL bằng Playwright, intercept GraphQL responses để lấy comments.
- * Chỉ trả về comments mà page owner (session.userId) chưa reply.
- */
 export async function fetchPostComments(
   session: SessionData,
   postUrl: string
 ): Promise<CommentData[]> {
+  const url = normalizePostUrl(postUrl)
+  console.log(`[fetchPostComments] navigating to: ${url}`)
+
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
@@ -101,28 +188,65 @@ export async function fetchPostComments(
 
   const page = await context.newPage()
   const found = new Map<string, CommentData>()
+  let graphqlCount = 0
 
-  // Intercept tất cả GraphQL responses khi page load
+  // Intercept GraphQL responses (for SPA navigation / dynamic loads)
   page.on('response', (response) => {
     if (!response.url().includes('facebook.com/api/graphql')) return
+    graphqlCount++
 
     response.text().then((raw) => {
       const cleaned = raw.startsWith('for (;;);') ? raw.slice(9) : raw
-      try {
-        const json = JSON.parse(cleaned) as Record<string, unknown>
-        extractCommentsFromJson(json, session.userId, found)
-      } catch { /* ignore parse errors */ }
+      for (const chunk of cleaned.split('\n')) {
+        const trimmed = chunk.trim()
+        if (!trimmed || !trimmed.startsWith('{')) continue
+        try {
+          const json = JSON.parse(trimmed) as Record<string, unknown>
+          deepFindComments(json, session.userId, found)
+        } catch { /* ignore */ }
+      }
     }).catch(() => { /* ignore */ })
   })
 
   try {
-    await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 30_000 })
-    // Đợi thêm một chút để lazy-load comments xong
-    await page.waitForTimeout(3000)
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await page.waitForTimeout(5000)
+
+    const title = await page.title()
+    console.log(`[fetchPostComments] page title: ${title}`)
+
+    // Scroll to trigger lazy-load
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate('window.scrollBy(0, 800)')
+      await page.waitForTimeout(2000)
+    }
+
+    // Click "more comments" if present
+    try {
+      const moreBtn = page.locator('[role="button"]:has-text("bình luận"), [role="button"]:has-text("comment")')
+      const count = await moreBtn.count()
+      if (count > 0) {
+        await moreBtn.first().click()
+        await page.waitForTimeout(3000)
+      }
+    } catch { /* no button */ }
+
+    // Extract comments from SSR HTML (inline script tags)
+    if (found.size === 0) {
+      const html = await page.content()
+      const htmlComments = extractCommentsFromHtml(html, session.userId)
+      for (const c of htmlComments) {
+        if (!found.has(c.feedbackId)) {
+          found.set(c.feedbackId, c)
+        }
+      }
+      console.log(`[fetchPostComments] SSR extraction: ${htmlComments.length} comments from HTML`)
+    }
+
+    console.log(`[fetchPostComments] ${url} — ${graphqlCount} GraphQL, ${found.size} comments total`)
   } finally {
     await browser.close()
   }
 
-  // Lọc: chỉ trả về comment chưa có reply từ owner
   return Array.from(found.values()).filter((c) => !c.hasOwnerReply)
 }
