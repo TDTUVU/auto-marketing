@@ -1,5 +1,5 @@
 import IORedis from 'ioredis'
-import { getPostQueue, startAutoPilotScheduler, scheduleCommentPoll } from './lib/queue/jobs'
+import { getPostQueue, getCommentQueue, startAutoPilotScheduler, scheduleCommentPoll } from './lib/queue/jobs'
 import { worker } from './lib/queue/worker'
 import { commentWorker } from './lib/queue/commentWorker'
 import { autopilotWorker } from './lib/queue/autopilotWorker'
@@ -45,8 +45,28 @@ startAutoPilotScheduler()
   .catch((err) => console.error('[AutoPilot] Failed to register scheduler:', err.message))
 
 // Restore comment poll jobs sau mỗi lần restart (worker hoặc Redis)
+// Đồng thời backfill autoReplyEnabled=true cho các bài đang được track trong BullMQ
 async function restoreCommentJobs() {
   await connectDB()
+
+  // Bước 1: Backfill — đọc BullMQ, set autoReplyEnabled=true cho post chưa có field
+  const repeatables = await getCommentQueue().getRepeatableJobs()
+  const bullmqPostIds: string[] = []
+  for (const job of repeatables) {
+    const match = job.id?.match(/^comment-poll-(.+)$/)
+    if (match) bullmqPostIds.push(match[1]!)
+  }
+  if (bullmqPostIds.length > 0) {
+    const { modifiedCount } = await Post.updateMany(
+      { _id: { $in: bullmqPostIds }, autoReplyEnabled: { $ne: true } },
+      { $set: { autoReplyEnabled: true } }
+    )
+    if (modifiedCount > 0) {
+      console.log(`[CommentRestore] Backfilled autoReplyEnabled=true for ${modifiedCount} post(s)`)
+    }
+  }
+
+  // Bước 2: Re-register jobs cho tất cả post có autoReplyEnabled=true (dedup bởi BullMQ)
   const posts = await Post.find({
     autoReplyEnabled: true,
     status: 'published',
@@ -54,7 +74,7 @@ async function restoreCommentJobs() {
   }).select('_id accountId platformPostId content').lean()
 
   if (posts.length === 0) {
-    console.log('[CommentRestore] No active auto-reply posts to restore')
+    console.log('[CommentRestore] No active auto-reply posts')
     return
   }
 
