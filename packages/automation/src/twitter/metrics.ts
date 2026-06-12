@@ -51,6 +51,19 @@ function findTweetMetrics(obj: unknown, tweetId: string, depth = 0): PostMetrics
   return null
 }
 
+/** "1.2K" → 1200, "3.4M" → 3400000, "1,234" → 1234 */
+function parseCount(text: string | null | undefined): number | undefined {
+  if (!text) return undefined
+  const m = text.replace(/,/g, '').match(/([\d.]+)\s*([KM]?)/i)
+  if (!m?.[1]) return undefined
+  let n = parseFloat(m[1])
+  if (!Number.isFinite(n)) return undefined
+  const suffix = (m[2] ?? '').toUpperCase()
+  if (suffix === 'K') n *= 1_000
+  else if (suffix === 'M') n *= 1_000_000
+  return Math.round(n)
+}
+
 function cookiesToPlaywright(cookies: CookieData[]) {
   return cookies.map((c) => ({
     name: c.name,
@@ -64,12 +77,22 @@ function cookiesToPlaywright(cookies: CookieData[]) {
   }))
 }
 
+interface DomMetrics {
+  like: string | null
+  reply: string | null
+  retweet: string | null
+  bookmark: string | null
+  views: string | null
+  groupLabel: string | null
+  title: string
+  url: string
+}
+
 /**
  * Lấy metrics của 1 tweet bằng trình duyệt thật (Playwright).
  *
- * Replay GraphQL bằng undici bị X chặn (error 226) vì thiếu header
- * x-client-transaction-id tính động. Mở tweet trong browser thật rồi
- * intercept response GraphQL → browser tự sinh đủ header hợp lệ.
+ * Lớp 1: intercept response GraphQL (số chính xác).
+ * Lớp 2: nếu X render sẵn trong HTML (không gọi GraphQL), đọc thẳng từ DOM.
  */
 export async function fetchTweetMetrics(
   session: SessionData,
@@ -87,18 +110,21 @@ export async function fetchTweetMetrics(
 
   const context = await browser.newContext({
     userAgent: session.userAgent,
-    extraHTTPHeaders: { 'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8' },
+    locale: 'en-US',
+    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
   })
 
   await context.addCookies(cookiesToPlaywright(session.cookies))
 
   const page = await context.newPage()
   let found: PostMetrics | null = null
+  let graphqlCount = 0
 
-  // Intercept mọi response GraphQL — focal tweet nằm trong TweetDetail / TweetResultByRestId
+  // Lớp 1 — intercept mọi response GraphQL
   page.on('response', (response) => {
     const u = response.url()
-    if (!u.includes('/i/api/graphql/')) return
+    if (!u.includes('graphql')) return
+    graphqlCount++
 
     response.text().then((raw) => {
       if (found) return
@@ -113,16 +139,79 @@ export async function fetchTweetMetrics(
   try {
     await page.goto(tweetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
 
-    // Chờ response GraphQL được intercept (tối đa ~15s)
-    for (let i = 0; i < 15 && !found; i++) {
+    // Chờ tweet render (hoặc login wall)
+    try {
+      await page.waitForSelector('article', { timeout: 15_000 })
+    } catch { /* không có article — có thể bị chặn */ }
+
+    // Cho GraphQL kịp về
+    for (let i = 0; i < 8 && !found; i++) {
       await page.waitForTimeout(1000)
     }
+
+    // Lớp 2 — fallback đọc DOM nếu GraphQL không bắt được
+    if (!found) {
+      const dom = await page.evaluate((): DomMetrics => {
+        // document/location chạy trong browser — cast để compile dưới Node (không có DOM lib)
+        const g = globalThis as unknown as {
+          document: {
+            querySelector(sel: string): {
+              querySelector(s: string): { textContent: string | null; getAttribute(a: string): string | null } | null
+              getAttribute(a: string): string | null
+            } | null
+            title: string
+          }
+          location: { href: string }
+        }
+        const article =
+          g.document.querySelector('article[data-testid="tweet"]') ??
+          g.document.querySelector('article')
+        const pick = (sel: string): string | null => {
+          const el = article?.querySelector(sel)
+          return el ? (el.textContent ?? '').trim() : null
+        }
+        const analyticsLink = article?.querySelector('a[href$="/analytics"]')
+        return {
+          like: pick('[data-testid="like"]') ?? pick('[data-testid="unlike"]'),
+          reply: pick('[data-testid="reply"]'),
+          retweet: pick('[data-testid="retweet"]') ?? pick('[data-testid="unretweet"]'),
+          bookmark: pick('[data-testid="bookmark"]') ?? pick('[data-testid="removeBookmark"]'),
+          views: analyticsLink ? (analyticsLink.textContent ?? '').trim() : null,
+          groupLabel: article?.querySelector('[role="group"]')?.getAttribute('aria-label') ?? null,
+          title: g.document.title,
+          url: g.location.href,
+        }
+      })
+
+      console.log(`[Twitter:metrics] DOM fallback — title:"${dom.title}" group:"${dom.groupLabel ?? ''}"`)
+
+      const likes = parseCount(dom.like)
+      const comments = parseCount(dom.reply)
+      const shares = parseCount(dom.retweet)
+      // Có ít nhất 1 chỉ số đọc được mới coi là hợp lệ (tránh trang login)
+      if (likes != null || comments != null || shares != null) {
+        const m: PostMetrics = {
+          likes: likes ?? 0,
+          comments: comments ?? 0,
+          shares: shares ?? 0,
+        }
+        const views = parseCount(dom.views)
+        const saves = parseCount(dom.bookmark)
+        if (views != null) m.views = views
+        if (saves != null) m.saves = saves
+        found = m
+      }
+    }
+
+    console.log(`[Twitter:metrics] graphql responses seen: ${graphqlCount}, page: ${page.url()}`)
   } finally {
     await browser.close()
   }
 
   if (!found) {
-    throw new Error(`Không lấy được metrics cho tweet ${tweetId} — có thể bị xóa, private, hoặc session hết hạn`)
+    throw new Error(
+      `Không lấy được metrics cho tweet ${tweetId} (graphql:${graphqlCount}) — có thể bị xóa, private, hoặc session hết hạn`
+    )
   }
 
   const m = found as PostMetrics
