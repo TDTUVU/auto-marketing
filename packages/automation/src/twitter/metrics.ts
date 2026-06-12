@@ -1,6 +1,10 @@
-import { chromium } from 'playwright'
+import { chromium } from 'playwright-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import type { CookieData, PostMetrics, SessionData } from '../types.js'
 import { extractTweetId } from './comments.js'
+
+// Giả lập trình duyệt thật để X không trả dữ liệu rỗng cho headless
+chromium.use(StealthPlugin())
 
 function toNum(v: unknown): number {
   const n = Number(v)
@@ -101,7 +105,10 @@ export async function fetchTweetMetrics(
   const tweetId = extractTweetId(tweetUrl)
   if (!tweetId) throw new Error(`Cannot extract tweet ID from URL: ${tweetUrl}`)
 
-  console.log(`[Twitter:metrics] navigating to tweet ${tweetId}`)
+  const keyCookies = ['auth_token', 'ct0', 'twid'].filter((k) =>
+    session.cookies.some((c) => c.name === k)
+  )
+  console.log(`[Twitter:metrics] navigating to tweet ${tweetId} — key cookies: ${keyCookies.join(',') || 'NONE'}`)
 
   const browser = await chromium.launch({
     headless: true,
