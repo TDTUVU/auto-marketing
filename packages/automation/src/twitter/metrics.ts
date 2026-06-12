@@ -105,10 +105,13 @@ export async function fetchTweetMetrics(
   const tweetId = extractTweetId(tweetUrl)
   if (!tweetId) throw new Error(`Cannot extract tweet ID from URL: ${tweetUrl}`)
 
+  // Path chuẩn luôn resolve về tweet, bất kể handle. URL lưu dạng /i/status/ bị X trả 404.
+  const navUrl = `https://x.com/i/web/status/${tweetId}`
+
   const keyCookies = ['auth_token', 'ct0', 'twid'].filter((k) =>
     session.cookies.some((c) => c.name === k)
   )
-  console.log(`[Twitter:metrics] navigating to tweet ${tweetId} — key cookies: ${keyCookies.join(',') || 'NONE'}`)
+  console.log(`[Twitter:metrics] navigating to ${navUrl} — key cookies: ${keyCookies.join(',') || 'NONE'}`)
 
   // Headless bị X giữ lại nội dung → mặc định headful. Đặt METRICS_HEADLESS=true để chạy ẩn.
   const headless = process.env['METRICS_HEADLESS'] === 'true'
@@ -159,7 +162,7 @@ export async function fetchTweetMetrics(
   })
 
   try {
-    await page.goto(tweetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
 
     // Chờ thân tweet render (xác nhận X đã trả nội dung, không bị giữ lại)
     try {
