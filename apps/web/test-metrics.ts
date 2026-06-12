@@ -1,17 +1,18 @@
 /**
- * Test trực tiếp việc lấy metrics 1 bài đăng (bỏ qua queue/Redis).
- * Dùng để debug khi nút refresh báo timeout — script này in ra lỗi thật.
+ * Test trực tiếp việc lấy metrics (bỏ qua queue/Redis). In ra lỗi thật.
  *
- * Chạy trên máy có worker:
- *   pnpm test:metrics              → liệt kê các bài published để lấy ID
- *   pnpm test:metrics 64f...abc    → lấy metrics cho bài có ID đó
+ *   pnpm test:metrics                          → liệt kê bài published để lấy ID
+ *   pnpm test:metrics <postId>                 → lấy metrics theo Post trong DB
+ *   pnpm test:metrics https://x.com/.../status/<id>   → test 1 tweet bất kỳ bằng session account twitter
  */
 
 import { capturePostMetrics } from './lib/metrics'
 import { connectDB } from './lib/db'
 import { Post, Account } from './lib/db/schema'
+import { loadSessionForAccount } from './lib/session'
+import { fetchTweetMetrics } from '@automation/core'
 
-const postId = process.argv[2]
+const arg = process.argv[2]
 
 async function listPublished() {
   await connectDB()
@@ -27,24 +28,44 @@ async function listPublished() {
     console.log('Không có bài Twitter nào đã published.')
     return
   }
-
   console.log(`\nChọn 1 ID rồi chạy lại:  pnpm test:metrics <id>\n`)
   for (const p of posts) {
-    const id = p._id.toString()
     const snippet = p.content.replace(/\s+/g, ' ').slice(0, 50)
     const hasUrl = p.platformPostId ? '✓ URL' : '✗ no URL'
-    console.log(`  ${id}  [${hasUrl}]  ${snippet}`)
+    console.log(`  ${p._id.toString()}  [${hasUrl}]  ${snippet}`)
   }
   console.log('')
 }
 
+// Test 1 tweet bất kỳ bằng session của account twitter đầu tiên
+async function testUrl(url: string) {
+  await connectDB()
+  const acc = await Account.findOne({ platform: 'twitter' }).select('_id name').lean()
+  if (!acc) {
+    console.log('Không có account twitter nào trong DB.')
+    return
+  }
+  const session = await loadSessionForAccount(acc._id.toString())
+  if (!session) {
+    console.log(`Không load được session cho account "${acc.name}".`)
+    return
+  }
+  console.log(`[test-metrics] dùng account "${acc.name}" để lấy metrics cho: ${url}`)
+  const m = await fetchTweetMetrics(session, url)
+  console.log('[test-metrics] SUCCESS:', JSON.stringify(m, null, 2))
+}
+
 async function main() {
-  if (!postId) {
+  if (!arg) {
     await listPublished()
     return
   }
-  console.log(`[test-metrics] Fetching metrics for post ${postId}...`)
-  const snapshot = await capturePostMetrics(postId)
+  if (arg.startsWith('http') || arg.includes('/status/')) {
+    await testUrl(arg)
+    return
+  }
+  console.log(`[test-metrics] Fetching metrics for post ${arg}...`)
+  const snapshot = await capturePostMetrics(arg)
   console.log('[test-metrics] SUCCESS:', JSON.stringify(snapshot, null, 2))
 }
 
