@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
-import { PostMetric } from '@/lib/db/schema'
-import { capturePostMetrics } from '@/lib/metrics'
+import { Post, PostMetric } from '@/lib/db/schema'
+import { enqueueMetricsRefresh } from '@/lib/queue/jobs'
 
-// POST — refresh: lấy metrics live, lưu snapshot, cập nhật latestMetrics
+// POST — enqueue 1 job để worker (có Playwright) lấy metrics live.
+// Không fetch trực tiếp ở đây vì web/Railway không chạy được headless browser.
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -11,16 +12,34 @@ export async function POST(
   const { id } = await params
 
   try {
-    const snapshot = await capturePostMetrics(id)
-    return NextResponse.json({ data: snapshot, error: null })
+    await connectDB()
+
+    const post = await Post.findById(id)
+    if (!post) {
+      return NextResponse.json({ data: null, error: 'Post not found' }, { status: 404 })
+    }
+    if (post.status !== 'published') {
+      return NextResponse.json(
+        { data: null, error: `Post chưa published (status: ${post.status})` },
+        { status: 400 }
+      )
+    }
+    if (!post.platformPostId) {
+      return NextResponse.json(
+        { data: null, error: 'Post không có URL bài viết — chưa thể lấy metrics' },
+        { status: 400 }
+      )
+    }
+
+    const jobId = await enqueueMetricsRefresh(id)
+    return NextResponse.json({ data: { queued: true, jobId }, error: null })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal server error'
-    console.error('[/api/posts/[id]/metrics] POST error:', message)
-    return NextResponse.json({ data: null, error: message }, { status: 400 })
+    console.error('[/api/posts/[id]/metrics] POST error:', err)
+    return NextResponse.json({ data: null, error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// GET — lịch sử snapshot (time-series) cho 1 bài đăng
+// GET — lịch sử snapshot (time-series) cho 1 bài đăng, mới nhất ở cuối
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -18,20 +18,42 @@ function fmt(n: number): string {
   return String(n)
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 export function MetricsBar({ postId, initial }: { postId: string; initial?: Snapshot }) {
   const [metrics, setMetrics] = useState<Snapshot | undefined>(initial)
   const [loading, setLoading] = useState(false)
 
+  // Lấy snapshot mới nhất từ history
+  async function fetchLatest(): Promise<Snapshot | undefined> {
+    const res = await fetch(`/api/posts/${postId}/metrics`)
+    const json = (await res.json()) as { data: Snapshot[] | null; error: string | null }
+    if (!res.ok || json.error || !json.data?.length) return undefined
+    return json.data[json.data.length - 1]
+  }
+
   async function refresh() {
     setLoading(true)
+    const baseline = metrics?.capturedAt ? new Date(metrics.capturedAt).getTime() : 0
     try {
       const res = await fetch(`/api/posts/${postId}/metrics`, { method: 'POST' })
-      const json = (await res.json()) as { data: Snapshot | null; error: string | null }
+      const json = (await res.json()) as { error: string | null }
       if (!res.ok || json.error) {
-        alert(typeof json.error === 'string' ? json.error : 'Lỗi khi lấy metrics')
-      } else if (json.data) {
-        setMetrics(json.data)
+        alert(typeof json.error === 'string' ? json.error : 'Lỗi khi yêu cầu metrics')
+        return
       }
+
+      // Worker xử lý bất đồng bộ (Playwright ~vài giây) — poll tới khi có snapshot mới
+      for (let i = 0; i < 15; i++) {
+        await sleep(3000)
+        const latest = await fetchLatest()
+        const ts = latest?.capturedAt ? new Date(latest.capturedAt).getTime() : 0
+        if (latest && ts > baseline) {
+          setMetrics(latest)
+          return
+        }
+      }
+      alert('Đang xử lý lâu hơn dự kiến — worker có thể đang bận hoặc chưa chạy. Thử lại sau ít phút.')
     } catch {
       alert('Lỗi kết nối khi lấy metrics')
     } finally {
@@ -64,7 +86,7 @@ export function MetricsBar({ postId, initial }: { postId: string; initial?: Snap
           )}
         </>
       ) : (
-        <span className="text-zinc-400">Chưa có dữ liệu</span>
+        <span className="text-zinc-400">{loading ? 'Đang lấy dữ liệu…' : 'Chưa có dữ liệu'}</span>
       )}
       <button
         onClick={refresh}

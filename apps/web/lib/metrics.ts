@@ -1,7 +1,7 @@
 import { connectDB } from './db'
 import { Account, Post, PostMetric, type IMetricSnapshot } from './db/schema'
 import { loadSessionForAccount } from './session'
-import { fetchTweetMetrics, extractTwitterTokens } from '@automation/core'
+import { fetchTweetMetrics } from '@automation/core'
 import type { PostMetrics } from '@automation/core'
 
 /**
@@ -31,8 +31,7 @@ export async function capturePostMetrics(postId: string): Promise<IMetricSnapsho
   let metrics: PostMetrics
   switch (account.platform) {
     case 'twitter': {
-      const tokens = extractTwitterTokens(session.cookies)
-      metrics = await fetchTweetMetrics(session.cookies, session.userAgent, tokens, url)
+      metrics = await fetchTweetMetrics(session, url)
       break
     }
     default:

@@ -12,6 +12,7 @@ let _queueConnection: IORedis | undefined
 let _postQueue: Queue<PostJobData> | undefined
 let _commentQueue: Queue<CommentJobData> | undefined
 let _autopilotQueue: Queue<AutoPilotJobData> | undefined
+let _metricsQueue: Queue<MetricsJobData> | undefined
 
 function getQueueConnection() {
   return (_queueConnection ??= makeConnection())
@@ -27,6 +28,10 @@ export function getCommentQueue() {
 
 export function getAutopilotQueue() {
   return (_autopilotQueue ??= new Queue<AutoPilotJobData>('autopilot-queue', { connection: getQueueConnection() }))
+}
+
+export function getMetricsQueue() {
+  return (_metricsQueue ??= new Queue<MetricsJobData>('metrics-queue', { connection: getQueueConnection() }))
 }
 
 export interface ImageJobData {
@@ -123,6 +128,37 @@ export async function startAutoPilotScheduler(): Promise<void> {
       jobId: 'autopilot-scheduler',
     }
   )
+}
+
+// ─── Metrics ──────────────────────────────────────────────────────────────
+
+export interface MetricsJobData {
+  postId: string
+}
+
+export function createMetricsWorker(
+  handler: (data: MetricsJobData) => Promise<void>
+): Worker<MetricsJobData> {
+  return new Worker<MetricsJobData>(
+    'metrics-queue',
+    async (job) => { await handler(job.data) },
+    { connection: makeConnection(), concurrency: 1 }
+  )
+}
+
+/** Enqueue 1 lần để worker (có Playwright) lấy metrics — tránh chạy browser trên web/Railway */
+export async function enqueueMetricsRefresh(postId: string): Promise<string> {
+  const job = await getMetricsQueue().add(
+    'refresh-metrics',
+    { postId },
+    {
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 60_000 },
+      removeOnComplete: true,
+      removeOnFail: 50,
+    }
+  )
+  return job.id ?? ''
 }
 
 export async function schedulePost(data: PostJobData, scheduledAt: Date): Promise<string> {
