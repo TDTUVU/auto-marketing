@@ -141,23 +141,13 @@ export async function fetchTweetMetrics(
     const op = u.split('?')[0]?.split('/').pop() ?? '?'
 
     response.text().then((raw) => {
-      const idPresent = raw.includes(tweetId)
-      opsSeen.push(`${op}${idPresent ? '*' : ''}`)
+      opsSeen.push(`${op}${raw.includes(tweetId) ? '*' : ''}`)
       if (found) return
       try {
         const json = JSON.parse(raw) as Record<string, unknown>
         const m = findTweetMetrics(json, tweetId)
-        if (m) {
-          found = m
-        } else if (idPresent) {
-          // Response có chứa tweet nhưng parser không khớp — dump để xem cấu trúc
-          const i = raw.indexOf(`"rest_id":"${tweetId}"`)
-          const at = i >= 0 ? i : raw.indexOf(tweetId)
-          console.log(`[Twitter:metrics][debug] ${op} chứa id nhưng không khớp. snippet:\n${raw.slice(Math.max(0, at - 60), at + 500)}`)
-        }
-      } catch {
-        if (idPresent) console.log(`[Twitter:metrics][debug] ${op} có id nhưng JSON.parse fail (len ${raw.length})`)
-      }
+        if (m) found = m
+      } catch { /* ignore non-JSON */ }
     }).catch(() => { /* ignore */ })
   })
 
