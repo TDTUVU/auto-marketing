@@ -1,10 +1,18 @@
-import { chromium } from 'playwright-extra'
-import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import type { CookieData, PostMetrics, SessionData } from '../types.js'
 import { extractTweetId } from './comments.js'
 
-// Giả lập trình duyệt thật để X không trả dữ liệu rỗng cho headless
-chromium.use(StealthPlugin())
+// Dynamic import + register 1 lần — KHÔNG import playwright ở top-level, nếu không
+// Next bundle web sẽ evaluate stealth lúc build và lỗi (r.typeOf is not a function).
+let _stealthReady = false
+async function getStealthChromium() {
+  const { chromium } = await import('playwright-extra')
+  if (!_stealthReady) {
+    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default
+    chromium.use(StealthPlugin())
+    _stealthReady = true
+  }
+  return chromium
+}
 
 function toNum(v: unknown): number {
   const n = Number(v)
@@ -115,6 +123,7 @@ export async function fetchTweetMetrics(
 
   // Mặc định headless. Đặt METRICS_HEADLESS=false để xem cửa sổ browser khi cần debug.
   const headless = process.env['METRICS_HEADLESS'] !== 'false'
+  const chromium = await getStealthChromium()
   const browser = await chromium.launch({
     headless,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
