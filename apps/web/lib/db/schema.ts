@@ -23,9 +23,32 @@ const AccountSchema = new Schema<IAccount>(
 
 export const Account = models['Account'] ?? model<IAccount>('Account', AccountSchema)
 
+// Chỉ số bài đăng, chuẩn hóa chung cho mọi platform
+export interface IMetricSnapshot {
+  views?: number
+  likes: number
+  comments: number
+  shares: number
+  saves?: number
+  capturedAt: Date
+}
+
+const MetricSnapshotSchema = new Schema<IMetricSnapshot>(
+  {
+    views: Number,
+    likes: { type: Number, default: 0 },
+    comments: { type: Number, default: 0 },
+    shares: { type: Number, default: 0 },
+    saves: Number,
+    capturedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+)
+
 // Post
 export interface IPost extends Document {
   accountId: Types.ObjectId
+  campaignId?: Types.ObjectId
   content: string
   imageUrls: string[]
   status: 'draft' | 'scheduled' | 'published' | 'failed'
@@ -34,12 +57,14 @@ export interface IPost extends Document {
   platformPostId?: string
   errorMessage?: string
   autoReplyEnabled: boolean
+  latestMetrics?: IMetricSnapshot
   createdAt: Date
 }
 
 const PostSchema = new Schema<IPost>(
   {
     accountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+    campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', index: true },
     content: { type: String, required: true },
     imageUrls: [{ type: String }],
     status: {
@@ -52,6 +77,7 @@ const PostSchema = new Schema<IPost>(
     platformPostId: String,
     errorMessage: String,
     autoReplyEnabled: { type: Boolean, default: false },
+    latestMetrics: { type: MetricSnapshotSchema, default: undefined },
   },
   { timestamps: true }
 )
@@ -218,3 +244,60 @@ const AutomationLogSchema = new Schema<IAutomationLog>({
 
 export const AutomationLog =
   models['AutomationLog'] ?? model<IAutomationLog>('AutomationLog', AutomationLogSchema)
+
+// Campaign — 1 booking của nhãn hàng, trải trên nhiều account/platform
+export interface ICampaign extends Document {
+  name: string
+  brandName?: string
+  accountIds: Types.ObjectId[]
+  startAt?: Date
+  endAt?: Date
+  status: 'active' | 'paused' | 'ended'
+  createdAt: Date
+}
+
+const CampaignSchema = new Schema<ICampaign>(
+  {
+    name: { type: String, required: true },
+    brandName: String,
+    accountIds: [{ type: Schema.Types.ObjectId, ref: 'Account' }],
+    startAt: Date,
+    endAt: Date,
+    status: {
+      type: String,
+      enum: ['active', 'paused', 'ended'],
+      default: 'active',
+    },
+  },
+  { timestamps: true }
+)
+
+export const Campaign = models['Campaign'] ?? model<ICampaign>('Campaign', CampaignSchema)
+
+// PostMetric — snapshot time-series cho từng bài đăng (append-only)
+export interface IPostMetric extends Document {
+  postId: Types.ObjectId
+  accountId: Types.ObjectId
+  platform: 'facebook' | 'instagram' | 'tiktok' | 'twitter'
+  views?: number
+  likes: number
+  comments: number
+  shares: number
+  saves?: number
+  capturedAt: Date
+}
+
+const PostMetricSchema = new Schema<IPostMetric>({
+  postId: { type: Schema.Types.ObjectId, ref: 'Post', required: true, index: true },
+  accountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+  platform: { type: String, enum: ['facebook', 'instagram', 'tiktok', 'twitter'], required: true },
+  views: Number,
+  likes: { type: Number, default: 0 },
+  comments: { type: Number, default: 0 },
+  shares: { type: Number, default: 0 },
+  saves: Number,
+  capturedAt: { type: Date, default: Date.now, index: true },
+})
+
+export const PostMetric =
+  models['PostMetric'] ?? model<IPostMetric>('PostMetric', PostMetricSchema)

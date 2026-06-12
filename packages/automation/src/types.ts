@@ -47,6 +47,15 @@ export interface TwitterTokens {
   bearerToken: string
 }
 
+/** Chỉ số bài đăng, chuẩn hóa chung cho mọi platform. Field nào platform không hỗ trợ thì undefined. */
+export interface PostMetrics {
+  views?: number      // X: impressions; FB: chỉ video mới có
+  likes: number       // X: favorite_count; FB: reaction_count
+  comments: number    // X: reply_count; FB: comment_count
+  shares: number      // X: retweet_count + quote_count; FB: share_count
+  saves?: number      // X: bookmark_count; FB: không có
+}
+
 export interface SessionData {
   userId: string
   cookies: CookieData[]
