@@ -119,20 +119,33 @@ export async function fetchTweetMetrics(
   const page = await context.newPage()
   let found: PostMetrics | null = null
   let graphqlCount = 0
+  const opsSeen: string[] = []
 
   // Lớp 1 — intercept mọi response GraphQL
   page.on('response', (response) => {
     const u = response.url()
     if (!u.includes('graphql')) return
     graphqlCount++
+    const op = u.split('?')[0]?.split('/').pop() ?? '?'
 
     response.text().then((raw) => {
+      const idPresent = raw.includes(tweetId)
+      opsSeen.push(`${op}${idPresent ? '*' : ''}`)
       if (found) return
       try {
         const json = JSON.parse(raw) as Record<string, unknown>
         const m = findTweetMetrics(json, tweetId)
-        if (m) found = m
-      } catch { /* ignore non-JSON */ }
+        if (m) {
+          found = m
+        } else if (idPresent) {
+          // Response có chứa tweet nhưng parser không khớp — dump để xem cấu trúc
+          const i = raw.indexOf(`"rest_id":"${tweetId}"`)
+          const at = i >= 0 ? i : raw.indexOf(tweetId)
+          console.log(`[Twitter:metrics][debug] ${op} chứa id nhưng không khớp. snippet:\n${raw.slice(Math.max(0, at - 60), at + 500)}`)
+        }
+      } catch {
+        if (idPresent) console.log(`[Twitter:metrics][debug] ${op} có id nhưng JSON.parse fail (len ${raw.length})`)
+      }
     }).catch(() => { /* ignore */ })
   })
 
@@ -141,13 +154,17 @@ export async function fetchTweetMetrics(
 
     // Chờ tweet render (hoặc login wall)
     try {
-      await page.waitForSelector('article', { timeout: 15_000 })
-    } catch { /* không có article — có thể bị chặn */ }
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15_000 })
+    } catch {
+      try { await page.waitForSelector('article', { timeout: 5_000 }) } catch { /* bị chặn */ }
+    }
 
     // Cho GraphQL kịp về
-    for (let i = 0; i < 8 && !found; i++) {
+    for (let i = 0; i < 12 && !found; i++) {
       await page.waitForTimeout(1000)
     }
+
+    console.log(`[Twitter:metrics] ops seen (* = chứa id): ${opsSeen.join(', ') || 'none'}`)
 
     // Lớp 2 — fallback đọc DOM nếu GraphQL không bắt được
     if (!found) {
