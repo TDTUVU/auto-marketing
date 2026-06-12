@@ -32,20 +32,39 @@ export function MetricsBar({ postId, initial }: { postId: string; initial?: Snap
     return json.data[json.data.length - 1]
   }
 
+  // Trạng thái job: failed → lỗi thật, waiting/delayed → worker chưa xử lý
+  async function fetchJobState(jobId: string): Promise<{ state: string; failedReason: string | null }> {
+    const res = await fetch(`/api/metrics/job/${jobId}`)
+    const json = (await res.json()) as { data: { state: string; failedReason: string | null } | null }
+    return json.data ?? { state: 'unknown', failedReason: null }
+  }
+
   async function refresh() {
     setLoading(true)
     const baseline = metrics?.capturedAt ? new Date(metrics.capturedAt).getTime() : 0
     try {
       const res = await fetch(`/api/posts/${postId}/metrics`, { method: 'POST' })
-      const json = (await res.json()) as { error: string | null }
+      const json = (await res.json()) as { data: { jobId?: string } | null; error: string | null }
       if (!res.ok || json.error) {
         alert(typeof json.error === 'string' ? json.error : 'Lỗi khi yêu cầu metrics')
         return
       }
+      const jobId = json.data?.jobId
 
-      // Worker xử lý bất đồng bộ (Playwright ~vài giây) — poll tới khi có snapshot mới
+      // Worker xử lý bất đồng bộ (Playwright ~vài giây) — poll tới khi có snapshot mới hoặc job fail
+      let lastState = ''
       for (let i = 0; i < 15; i++) {
         await sleep(3000)
+
+        if (jobId) {
+          const job = await fetchJobState(jobId)
+          lastState = job.state
+          if (job.state === 'failed') {
+            alert(`Lấy metrics thất bại: ${job.failedReason ?? 'không rõ nguyên nhân'}`)
+            return
+          }
+        }
+
         const latest = await fetchLatest()
         const ts = latest?.capturedAt ? new Date(latest.capturedAt).getTime() : 0
         if (latest && ts > baseline) {
@@ -53,7 +72,12 @@ export function MetricsBar({ postId, initial }: { postId: string; initial?: Snap
           return
         }
       }
-      alert('Đang xử lý lâu hơn dự kiến — worker có thể đang bận hoặc chưa chạy. Thử lại sau ít phút.')
+
+      if (lastState === 'waiting' || lastState === 'delayed') {
+        alert('Worker chưa xử lý job (có thể chưa chạy). Kiểm tra worker rồi thử lại.')
+      } else {
+        alert('Đang xử lý lâu hơn dự kiến. Thử lại sau ít phút.')
+      }
     } catch {
       alert('Lỗi kết nối khi lấy metrics')
     } finally {
