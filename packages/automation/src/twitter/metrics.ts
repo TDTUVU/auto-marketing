@@ -113,8 +113,8 @@ export async function fetchTweetMetrics(
   )
   console.log(`[Twitter:metrics] navigating to ${navUrl} — key cookies: ${keyCookies.join(',') || 'NONE'}`)
 
-  // Headless bị X giữ lại nội dung → mặc định headful. Đặt METRICS_HEADLESS=true để chạy ẩn.
-  const headless = process.env['METRICS_HEADLESS'] === 'true'
+  // Mặc định headless. Đặt METRICS_HEADLESS=false để xem cửa sổ browser khi cần debug.
+  const headless = process.env['METRICS_HEADLESS'] !== 'false'
   const browser = await chromium.launch({
     headless,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
