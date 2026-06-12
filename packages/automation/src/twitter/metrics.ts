@@ -110,8 +110,10 @@ export async function fetchTweetMetrics(
   )
   console.log(`[Twitter:metrics] navigating to tweet ${tweetId} — key cookies: ${keyCookies.join(',') || 'NONE'}`)
 
+  // Headless bị X giữ lại nội dung → mặc định headful. Đặt METRICS_HEADLESS=true để chạy ẩn.
+  const headless = process.env['METRICS_HEADLESS'] === 'true'
   const browser = await chromium.launch({
-    headless: true,
+    headless,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
   })
 
@@ -159,9 +161,9 @@ export async function fetchTweetMetrics(
   try {
     await page.goto(tweetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
 
-    // Chờ tweet render (hoặc login wall)
+    // Chờ thân tweet render (xác nhận X đã trả nội dung, không bị giữ lại)
     try {
-      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15_000 })
+      await page.waitForSelector('article[data-testid="tweet"] [data-testid="tweetText"]', { timeout: 20_000 })
     } catch {
       try { await page.waitForSelector('article', { timeout: 5_000 }) } catch { /* bị chặn */ }
     }
