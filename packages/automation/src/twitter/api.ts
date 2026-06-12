@@ -283,6 +283,18 @@ export async function postToTwitter(
 
     const postUrl = extractTweetUrl(json)
 
+    // X có thể trả 200 không kèm errors nhưng KHÔNG tạo tweet (soft-block / giới hạn /
+    // queryId hết hạn). Không có postUrl = không có tweet rest_id → coi là thất bại thật.
+    if (!postUrl) {
+      const snippet = JSON.stringify(json).slice(0, 400)
+      console.error('[Twitter:post] Không thấy tweet trong response — có thể bị giới hạn:', snippet)
+      return {
+        success: false,
+        error: `X không trả về tweet đã đăng (tài khoản có thể bị giới hạn, hoặc queryId hết hạn). Response: ${snippet}`,
+        timestamp: new Date(),
+      }
+    }
+
     const result: AutomationResult = { success: true, timestamp: new Date() }
     if (postUrl) result.postUrl = postUrl
     return result
