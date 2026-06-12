@@ -151,37 +151,24 @@ export async function fetchTweetMetrics(
 
     // Lớp 2 — fallback đọc DOM nếu GraphQL không bắt được
     if (!found) {
-      const dom = await page.evaluate((): DomMetrics => {
-        // document/location chạy trong browser — cast để compile dưới Node (không có DOM lib)
-        const g = globalThis as unknown as {
-          document: {
-            querySelector(sel: string): {
-              querySelector(s: string): { textContent: string | null; getAttribute(a: string): string | null } | null
-              getAttribute(a: string): string | null
-            } | null
-            title: string
-          }
-          location: { href: string }
-        }
-        const article =
-          g.document.querySelector('article[data-testid="tweet"]') ??
-          g.document.querySelector('article')
-        const pick = (sel: string): string | null => {
-          const el = article?.querySelector(sel)
-          return el ? (el.textContent ?? '').trim() : null
-        }
-        const analyticsLink = article?.querySelector('a[href$="/analytics"]')
+      // Truyền dưới dạng string — tránh esbuild (tsx) chèn helper __name vào hàm
+      // gửi sang browser (gây ReferenceError: __name is not defined).
+      const dom = await page.evaluate(`(() => {
+        const article = document.querySelector('article[data-testid="tweet"]') || document.querySelector('article');
+        const pick = (sel) => { const el = article && article.querySelector(sel); return el ? (el.textContent || '').trim() : null; };
+        const a = article && article.querySelector('a[href$="/analytics"]');
+        const grp = article && article.querySelector('[role="group"]');
         return {
-          like: pick('[data-testid="like"]') ?? pick('[data-testid="unlike"]'),
+          like: pick('[data-testid="like"]') || pick('[data-testid="unlike"]'),
           reply: pick('[data-testid="reply"]'),
-          retweet: pick('[data-testid="retweet"]') ?? pick('[data-testid="unretweet"]'),
-          bookmark: pick('[data-testid="bookmark"]') ?? pick('[data-testid="removeBookmark"]'),
-          views: analyticsLink ? (analyticsLink.textContent ?? '').trim() : null,
-          groupLabel: article?.querySelector('[role="group"]')?.getAttribute('aria-label') ?? null,
-          title: g.document.title,
-          url: g.location.href,
-        }
-      })
+          retweet: pick('[data-testid="retweet"]') || pick('[data-testid="unretweet"]'),
+          bookmark: pick('[data-testid="bookmark"]') || pick('[data-testid="removeBookmark"]'),
+          views: a ? (a.textContent || '').trim() : null,
+          groupLabel: grp ? grp.getAttribute('aria-label') : null,
+          title: document.title,
+          url: location.href,
+        };
+      })()`) as DomMetrics
 
       console.log(`[Twitter:metrics] DOM fallback — title:"${dom.title}" group:"${dom.groupLabel ?? ''}"`)
 
