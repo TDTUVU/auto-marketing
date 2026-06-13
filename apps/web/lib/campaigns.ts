@@ -151,3 +151,32 @@ export async function aggregateCampaign(campaign: ICampaign): Promise<CampaignAg
 
   return { totals, byPlatform, byAccount, posts: rows }
 }
+
+/**
+ * ID các bài đã đăng (có URL) thuộc campaign — để enqueue refresh metrics hàng loạt.
+ * Cùng tiêu chí gom như aggregateCampaign, nhưng chỉ lấy bài có platformPostId.
+ */
+export async function collectCampaignPostIds(campaign: ICampaign): Promise<string[]> {
+  const accountIds = campaign.accountIds ?? []
+  if (accountIds.length === 0) return []
+
+  const posts = await Post.find({
+    accountId: { $in: accountIds },
+    status: 'published',
+    platformPostId: { $exists: true, $nin: [null, ''] },
+  })
+    .select('publishedAt createdAt')
+    .lean()
+
+  const start = campaign.startAt ? new Date(campaign.startAt) : null
+  const end = campaign.endAt ? endOfDay(new Date(campaign.endAt)) : null
+
+  return posts
+    .filter((p) => {
+      const when = p.publishedAt ?? p.createdAt
+      if (start && when < start) return false
+      if (end && when > end) return false
+      return true
+    })
+    .map((p) => p._id.toString())
+}

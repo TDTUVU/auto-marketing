@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MetricStats, fmt } from '@/components/campaigns/metric-stats'
 import { DeleteCampaignBtn } from '@/components/campaigns/delete-campaign-btn'
+import { RefreshAllBtn } from '@/components/campaigns/refresh-all-btn'
 
 const statusMeta: Record<string, { label: string; variant: 'published' | 'scheduled' | 'default' }> = {
   active: { label: 'Đang chạy', variant: 'published' },
@@ -87,6 +88,7 @@ export default async function CampaignDetailPage({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <RefreshAllBtn campaignId={id} />
           <Link href={`/dashboard/campaigns/${id}/edit`}>
             <Button variant="outline" size="sm">
               <Pencil className="size-4" />
