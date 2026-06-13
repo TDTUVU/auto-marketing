@@ -1,14 +1,14 @@
 import { connectDB } from './db'
 import { Account, Post, PostMetric, type IMetricSnapshot } from './db/schema'
 import { loadSessionForAccount } from './session'
-import { fetchTweetMetrics } from '@automation/core'
+import { fetchTweetMetrics, fetchFacebookMetrics } from '@automation/core'
 import type { PostMetrics } from '@automation/core'
 
 /**
  * Lấy metrics live của 1 bài đăng, lưu snapshot vào PostMetric (time-series)
  * và cập nhật latestMetrics trên Post. Dùng chung cho API refresh + poll worker.
  *
- * Phase 1: chỉ Twitter. Facebook sẽ thêm ở Phase 2 (Playwright).
+ * Hỗ trợ Twitter (GraphQL intercept) + Facebook (feedback object). Cả hai chạy Playwright ở worker.
  */
 export async function capturePostMetrics(postId: string): Promise<IMetricSnapshot> {
   await connectDB()
@@ -34,8 +34,12 @@ export async function capturePostMetrics(postId: string): Promise<IMetricSnapsho
       metrics = await fetchTweetMetrics(session, url)
       break
     }
+    case 'facebook': {
+      metrics = await fetchFacebookMetrics(session, url)
+      break
+    }
     default:
-      throw new Error(`Platform "${account.platform}" chưa hỗ trợ lấy metrics (Phase 1: chỉ Twitter)`)
+      throw new Error(`Platform "${account.platform}" chưa hỗ trợ lấy metrics (hiện hỗ trợ Twitter, Facebook)`)
   }
 
   const capturedAt = new Date()
