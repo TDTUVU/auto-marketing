@@ -28,6 +28,8 @@ interface FeedbackCandidate {
   shares: number
   views?: number
   hasShareCount: boolean
+  /** Message của Story chứa feedback này — dùng để khớp với bài focal. */
+  message?: string
 }
 
 /**
@@ -70,35 +72,102 @@ function readFeedback(fb: Record<string, unknown>): FeedbackCandidate | null {
   return candidate
 }
 
-/** Đệ quy tìm mọi object feedback (có reaction_count / i18n_reaction_count). */
-function collectFeedback(obj: unknown, out: FeedbackCandidate[], depth = 0): void {
+function normalizeText(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+/**
+ * Tìm message text của 1 Story node. Không lặn vào Story con (bài share/gợi ý lồng bên trong)
+ * để không lấy nhầm caption của bài khác.
+ */
+function findStoryMessage(node: Record<string, unknown>): string | undefined {
+  let result: string | undefined
+  const visit = (o: unknown, depth: number, isRoot: boolean): void => {
+    if (result || !o || typeof o !== 'object' || depth > 15) return
+    if (Array.isArray(o)) {
+      for (const item of o) visit(item, depth + 1, false)
+      return
+    }
+    const r = o as Record<string, unknown>
+    if (!isRoot && r['__typename'] === 'Story') return // không lặn vào Story con
+    const msg = r['message'] as Record<string, unknown> | undefined
+    const text = msg?.['text']
+    if (typeof text === 'string' && text.trim().length > 0) {
+      result = text
+      return
+    }
+    for (const value of Object.values(r)) {
+      visit(value, depth + 1, false)
+      if (result) return
+    }
+  }
+  visit(node, 0, true)
+  return result
+}
+
+/**
+ * Đệ quy tìm mọi object feedback (có reaction_count / i18n_reaction_count).
+ * Truyền message của Story bao quanh xuống để gắn vào candidate → khớp bài focal sau.
+ */
+function collectFeedback(
+  obj: unknown,
+  out: FeedbackCandidate[],
+  nearestMessage?: string,
+  depth = 0
+): void {
   if (!obj || typeof obj !== 'object' || depth > 30) return
 
   if (Array.isArray(obj)) {
-    for (const item of obj) collectFeedback(item, out, depth + 1)
+    for (const item of obj) collectFeedback(item, out, nearestMessage, depth + 1)
     return
   }
 
   const record = obj as Record<string, unknown>
-  if ('reaction_count' in record || 'i18n_reaction_count' in record) {
-    const c = readFeedback(record)
-    if (c) out.push(c)
+  let message = nearestMessage
+  if (record['__typename'] === 'Story') {
+    const storyMessage = findStoryMessage(record)
+    if (storyMessage) message = storyMessage
   }
 
-  for (const value of Object.values(record)) collectFeedback(value, out, depth + 1)
+  if ('reaction_count' in record || 'i18n_reaction_count' in record) {
+    const c = readFeedback(record)
+    if (c) {
+      if (message) c.message = message
+      out.push(c)
+    }
+  }
+
+  for (const value of Object.values(record)) collectFeedback(value, out, message, depth + 1)
+}
+
+/** Lấy needle từ <title> trang ("<Page> - <caption>…") để khớp message bài focal. */
+function focalNeedle(title: string): string {
+  const sep = title.indexOf(' - ')
+  const postPart = sep >= 0 ? title.slice(sep + 3) : title
+  const norm = normalizeText(postPart).replace(/ facebook$/, '')
+  return norm.slice(0, 40)
 }
 
 /**
- * Chọn feedback của bài focal: ưu tiên candidate có share_count (post có, comment không),
- * rồi lấy cái nhiều tương tác nhất. Tránh nhầm feedback của comment trên trang.
+ * Chọn feedback của bài focal. Tin cậy nhất: candidate có message khớp <title> trang.
+ * Fallback (khi không có title/không khớp): heuristic cũ — ưu tiên có share_count, max tương tác.
  */
-function pickFocal(candidates: FeedbackCandidate[]): FeedbackCandidate | null {
+function pickFocal(candidates: FeedbackCandidate[], needle: string): FeedbackCandidate | null {
   if (candidates.length === 0) return null
+  const byInteraction = (a: FeedbackCandidate, b: FeedbackCandidate): number =>
+    b.likes + b.comments + b.shares - (a.likes + a.comments + a.shares)
+
+  if (needle.length >= 8) {
+    const matches = candidates.filter(
+      (c) => c.message && normalizeText(c.message).includes(needle)
+    )
+    if (matches.length > 0) return [...matches].sort(byInteraction)[0] ?? null
+    console.log(`[Facebook:metrics] không có candidate khớp title — dùng fallback heuristic`)
+  }
+
   const withShare = candidates.filter((c) => c.hasShareCount)
   const pool = withShare.length > 0 ? withShare : candidates
-  return pool.reduce((best, c) =>
-    c.likes + c.comments + c.shares > best.likes + best.comments + best.shares ? c : best
-  )
+  return [...pool].sort(byInteraction)[0] ?? null
 }
 
 function normalizePostUrl(url: string): string {
@@ -169,6 +238,7 @@ export async function fetchFacebookMetrics(
   const page = await context.newPage()
   const candidates: FeedbackCandidate[] = []
   let graphqlCount = 0
+  let needle = ''
 
   // Lớp 1 — intercept GraphQL responses
   page.on('response', (response) => {
@@ -189,7 +259,10 @@ export async function fetchFacebookMetrics(
 
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    console.log(`[Facebook:metrics] page title: ${await page.title()}`)
+    const title = await page.title()
+    needle = focalNeedle(title)
+    console.log(`[Facebook:metrics] page title: ${title}`)
+    console.log(`[Facebook:metrics] focal needle: "${needle}"`)
 
     // Scroll nhẹ để kích GraphQL feedback nếu render động
     for (let i = 0; i < 3 && candidates.length === 0; i++) {
@@ -213,7 +286,7 @@ export async function fetchFacebookMetrics(
     await browser.close()
   }
 
-  const focal = pickFocal(candidates)
+  const focal = pickFocal(candidates, needle)
   if (!focal) {
     throw new Error(
       `Không lấy được metrics cho bài ${url} (graphql:${graphqlCount}) — có thể bị xóa, private, hoặc session hết hạn`
@@ -223,6 +296,9 @@ export async function fetchFacebookMetrics(
   const m: PostMetrics = { likes: focal.likes, comments: focal.comments, shares: focal.shares }
   if (focal.views != null) m.views = focal.views
 
+  console.log(
+    `[Facebook:metrics] focal message: ${focal.message ? `"${focal.message.slice(0, 50)}…"` : '(không khớp title — fallback)'}`
+  )
   console.log(
     `[Facebook:metrics] views:${m.views ?? '?'} likes:${m.likes} comments:${m.comments} shares:${m.shares}`
   )
