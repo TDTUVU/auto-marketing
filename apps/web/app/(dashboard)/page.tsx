@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { Music2 } from 'lucide-react'
+import { Music2, Megaphone, ArrowRight } from 'lucide-react'
 import { FacebookIcon, TwitterIcon, InstagramIcon } from '@/components/icons/brand-icons'
 import { connectDB } from '@/lib/db'
 import { Account, Post, Product } from '@/lib/db/schema'
@@ -70,6 +70,19 @@ export default async function PlatformHubPage() {
             )
           })}
         </div>
+
+        <Link href="/dashboard/campaigns" className="block mt-4">
+          <div className="bg-white border border-zinc-200 rounded-xl p-5 hover:border-zinc-300 hover:shadow-md transition-all flex items-center gap-3">
+            <div className="size-10 rounded-full bg-amber-500 flex items-center justify-center text-white">
+              <Megaphone className="size-5" />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-semibold text-zinc-900">Chiến dịch</h2>
+              <p className="text-xs text-zinc-500">Tổng hợp hiệu quả nhiều tài khoản</p>
+            </div>
+            <ArrowRight className="size-4 text-zinc-400" />
+          </div>
+        </Link>
       </div>
     </div>
   )
