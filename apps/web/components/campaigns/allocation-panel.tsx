@@ -31,7 +31,11 @@ export function AllocationPanel({ campaignId, accounts, byPlatform, allocation }
   const platforms = useMemo(() => [...new Set(accounts.map((a) => a.platform))], [accounts])
   const suggested = useMemo(() => suggestWeights(platforms, byPlatform), [platforms, byPlatform])
 
-  const [total, setTotal] = useState<number>(allocation?.totalPostsPerDay || accounts.length)
+  // Default = 2 bài/account (khớp cadence mặc định của AutoPilot), tối thiểu = số platform
+  // để mỗi platform nhận được ít nhất 1 bài, tránh preview mở ra đã lệch 1 platform về 0.
+  const [total, setTotal] = useState<number>(
+    allocation?.totalPostsPerDay || Math.max(accounts.length * 2, platforms.length)
+  )
   const [weights, setWeights] = useState<Record<string, number>>(
     allocation?.platformWeights ?? suggested
   )
