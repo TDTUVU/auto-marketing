@@ -156,9 +156,28 @@ const FB_SUGGESTION_PREFIXES = [
   'people you may know',
 ]
 
-function isFacebookSuggestion(text: string): boolean {
+// Text "notification" FB nhồi sẵn vào HTML trang post (jewel thông báo) — bị bắt nhầm
+// thành comment khi poll trước lúc comment render. Đây là tường thuật hệ thống (ngôi thứ 3),
+// KHÔNG phải nội dung comment khách. Lọc bằng cụm đặc trưng (dùng includes vì tên đứng đầu).
+const FB_NOTIFICATION_PATTERNS = [
+  'đã bình luận về bài viết',
+  'đã bình luận về ảnh',
+  'đã trả lời bình luận',
+  'đã thích bài viết của bạn',
+  'đã thích bình luận',
+  'thích ảnh của bạn',
+  'người theo dõi, thích',
+  'đã chia sẻ bài viết',
+  'commented on your',
+  'liked your photo',
+  'replied to your comment',
+]
+
+function isFacebookNoise(text: string): boolean {
   const t = text.trim().toLowerCase()
-  return FB_SUGGESTION_PREFIXES.some((p) => t.startsWith(p))
+  if (FB_SUGGESTION_PREFIXES.some((p) => t.startsWith(p))) return true
+  if (FB_NOTIFICATION_PATTERNS.some((p) => t.includes(p))) return true
+  return false
 }
 
 function normalizePostUrl(url: string): string {
@@ -272,10 +291,10 @@ export async function fetchPostComments(
   }
 
   const all = Array.from(found.values()).filter((c) => !c.hasOwnerReply)
-  const comments = all.filter((c) => !isFacebookSuggestion(c.text))
+  const comments = all.filter((c) => !isFacebookNoise(c.text))
   const dropped = all.length - comments.length
   if (dropped > 0) {
-    console.log(`[fetchPostComments] bỏ qua ${dropped} thẻ gợi ý/quảng cáo FB (không phải comment)`)
+    console.log(`[fetchPostComments] bỏ qua ${dropped} thẻ gợi ý/quảng cáo/thông báo FB (không phải comment)`)
   }
   return comments
 }
