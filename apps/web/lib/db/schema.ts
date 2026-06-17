@@ -246,6 +246,12 @@ export const AutomationLog =
   models['AutomationLog'] ?? model<IAutomationLog>('AutomationLog', AutomationLogSchema)
 
 // Campaign — 1 booking của nhãn hàng, trải trên nhiều account/platform
+export interface ICampaignAllocation {
+  totalPostsPerDay: number
+  platformWeights: Record<string, number> // {facebook: 50, twitter: 50}
+  appliedAt?: Date
+}
+
 export interface ICampaign extends Document {
   name: string
   brandName?: string
@@ -253,6 +259,7 @@ export interface ICampaign extends Document {
   startAt?: Date
   endAt?: Date
   status: 'active' | 'paused' | 'ended'
+  allocation?: ICampaignAllocation
   createdAt: Date
 }
 
@@ -267,6 +274,17 @@ const CampaignSchema = new Schema<ICampaign>(
       type: String,
       enum: ['active', 'paused', 'ended'],
       default: 'active',
+    },
+    allocation: {
+      type: new Schema<ICampaignAllocation>(
+        {
+          totalPostsPerDay: { type: Number, default: 0 },
+          platformWeights: { type: Schema.Types.Mixed, default: {} },
+          appliedAt: Date,
+        },
+        { _id: false }
+      ),
+      default: undefined,
     },
   },
   { timestamps: true }
