@@ -55,12 +55,14 @@ startAutoPilotScheduler()
 async function restoreCommentJobs() {
   await connectDB()
 
-  // Bước 1: Backfill — đọc BullMQ, set autoReplyEnabled=true cho post chưa có field
-  const repeatables = await getCommentQueue().getRepeatableJobs()
+  // Bước 1: Backfill — đọc job schedulers (BullMQ 5), set autoReplyEnabled=true cho post chưa có field.
+  // Đồng thời migrate: xóa scheduler legacy (key dạng hash từ repeatable cũ) để không poll trùng.
+  const schedulers = await getCommentQueue().getJobSchedulers(0, -1, true)
   const bullmqPostIds: string[] = []
-  for (const job of repeatables) {
-    const match = job.id?.match(/^comment-poll-(.+)$/)
+  for (const s of schedulers) {
+    const match = s.key?.match(/^comment-poll-(.+)$/)
     if (match) bullmqPostIds.push(match[1]!)
+    else await getCommentQueue().removeJobScheduler(s.key)
   }
   if (bullmqPostIds.length > 0) {
     const { modifiedCount } = await Post.updateMany(
