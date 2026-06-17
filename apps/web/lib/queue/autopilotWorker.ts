@@ -1,5 +1,5 @@
 import { connectDB } from '../db/index'
-import { Account, Post, Product, Image, AutoPilotConfig, AutomationLog } from '../db/schema'
+import { Account, Post, Product, Image, AutoPilotConfig, AutomationLog, Campaign } from '../db/schema'
 import { createAutoPilotWorker, schedulePost, type PostJobData, type ImageJobData } from './jobs'
 import { generateContent } from '../llm/content'
 
@@ -15,6 +15,22 @@ async function handleAutoPilotTick(): Promise<void> {
 
   for (const config of configs) {
     try {
+      // Gate theo campaign: account thuộc campaign nào thì chỉ đăng khi có campaign
+      // đang active VÀ nằm trong khoảng [startAt, endAt]. Account không thuộc campaign
+      // nào → autopilot chạy độc lập như cũ.
+      const campaigns = await Campaign.find({ accountIds: config.accountId })
+        .select('status startAt endAt')
+        .lean()
+      if (campaigns.length > 0) {
+        const runnable = campaigns.some((c) => {
+          if (c.status !== 'active') return false
+          if (c.startAt && now < new Date(c.startAt)) return false
+          if (c.endAt && now > endOfDay(new Date(c.endAt))) return false
+          return true
+        })
+        if (!runnable) continue
+      }
+
       const shouldPost = config.postTimes.some((time: string) => {
         const [hh, mm] = time.split(':')
         const diffMinutes =
@@ -148,6 +164,12 @@ async function pickProduct(
   }
 
   return Product.findOne(filter).sort({ lastPostedAt: 1, postCount: 1 })
+}
+
+function endOfDay(d: Date): Date {
+  const e = new Date(d)
+  e.setHours(23, 59, 59, 999)
+  return e
 }
 
 function buildProductIdea(name: string, description: string, price?: number): string {

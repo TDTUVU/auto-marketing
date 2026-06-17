@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { Campaign } from '@/lib/db/schema'
+import { applyCampaignAllocation } from '@/lib/campaigns'
 
 const STATUSES = ['active', 'paused', 'ended'] as const
 
@@ -37,6 +38,11 @@ export async function POST(request: Request) {
       startAt: startAt ? new Date(startAt) : undefined,
       endAt: endAt ? new Date(endAt) : undefined,
     })
+
+    // Tạo campaign có account = tự bật autopilot (phân bổ mặc định) → đảm bảo tính automation.
+    if (accountIds.length > 0) {
+      await applyCampaignAllocation(campaign)
+    }
 
     return NextResponse.json({ data: { _id: campaign._id.toString() }, error: null })
   } catch (err) {

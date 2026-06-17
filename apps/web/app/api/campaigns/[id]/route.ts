@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { Campaign } from '@/lib/db/schema'
+import { applyCampaignAllocation, disableCampaignAutopilot } from '@/lib/campaigns'
 
 const STATUSES = ['active', 'paused', 'ended'] as const
 
@@ -41,9 +42,27 @@ export async function PATCH(
     }
 
     await connectDB()
+
+    const accountsChanged = Array.isArray(body['accountIds'])
+    const before = accountsChanged
+      ? await Campaign.findById(id).select('accountIds').lean()
+      : null
+
     const campaign = await Campaign.findByIdAndUpdate(id, update, { new: true }).lean()
     if (!campaign) {
       return NextResponse.json({ data: null, error: 'Campaign not found' }, { status: 404 })
+    }
+
+    // Account bị gỡ khỏi campaign → tắt autopilot của chúng.
+    if (accountsChanged && before) {
+      const newSet = new Set((update['accountIds'] as string[]).map(String))
+      const removed = (before.accountIds ?? []).filter((a: unknown) => !newSet.has(String(a)))
+      await disableCampaignAutopilot(removed)
+    }
+
+    // Đổi danh sách account, hoặc campaign chưa có phân bổ → áp lại để autopilot khớp.
+    if (accountsChanged || !campaign.allocation) {
+      await applyCampaignAllocation(campaign)
     }
 
     return NextResponse.json({ data: { updated: true }, error: null })
