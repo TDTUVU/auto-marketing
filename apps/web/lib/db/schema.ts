@@ -259,6 +259,7 @@ export interface ICampaign extends Document {
   startAt?: Date
   endAt?: Date
   status: 'active' | 'paused' | 'ended'
+  autoReply: boolean
   allocation?: ICampaignAllocation
   createdAt: Date
 }
@@ -275,6 +276,7 @@ const CampaignSchema = new Schema<ICampaign>(
       enum: ['active', 'paused', 'ended'],
       default: 'active',
     },
+    autoReply: { type: Boolean, default: true },
     allocation: {
       type: new Schema<ICampaignAllocation>(
         {

@@ -34,6 +34,9 @@ export async function PATCH(
     if (Array.isArray(body['accountIds'])) {
       update['accountIds'] = body['accountIds'] as string[]
     }
+    if (typeof body['autoReply'] === 'boolean') {
+      update['autoReply'] = body['autoReply']
+    }
     if ('startAt' in body) {
       update['startAt'] = body['startAt'] ? new Date(body['startAt'] as string) : undefined
     }
@@ -60,8 +63,8 @@ export async function PATCH(
       await disableCampaignAutopilot(removed)
     }
 
-    // Đổi danh sách account, hoặc campaign chưa có phân bổ → áp lại để autopilot khớp.
-    if (accountsChanged || !campaign.allocation) {
+    // Đổi account / đổi autoReply / chưa có phân bổ → áp lại để autopilot khớp.
+    if (accountsChanged || 'autoReply' in update || !campaign.allocation) {
       await applyCampaignAllocation(campaign)
     }
 

@@ -189,6 +189,7 @@ type CampaignLike = {
   _id: Types.ObjectId | string
   accountIds?: (Types.ObjectId | string)[]
   allocation?: ICampaignAllocation | null
+  autoReply?: boolean
 }
 
 /**
@@ -230,6 +231,9 @@ export async function applyCampaignAllocation(
     weights = Object.fromEntries(platforms.map((p) => [p, prev?.platformWeights?.[p] ?? equal]))
   }
 
+  // Auto-reply do người tạo campaign quyết định (mặc định bật).
+  const autoReplyEnabled = campaign.autoReply ?? true
+
   const results = computeAllocation(total, weights, allocAccounts)
   for (const r of results) {
     await AutoPilotConfig.findOneAndUpdate(
@@ -239,6 +243,7 @@ export async function applyCampaignAllocation(
           postsPerDay: Math.max(r.postsPerDay, 1),
           postTimes: r.postTimes.length > 0 ? r.postTimes : ['12:00'],
           enabled: r.postsPerDay > 0,
+          autoReplyEnabled,
         },
         $setOnInsert: { accountId: r.accountId },
       },

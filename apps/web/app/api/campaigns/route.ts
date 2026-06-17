@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     const accountIds = Array.isArray(body['accountIds']) ? (body['accountIds'] as string[]) : []
     const startAt = body['startAt'] as string | undefined
     const endAt = body['endAt'] as string | undefined
+    const autoReply = body['autoReply'] !== false // mặc định bật, creator có thể tắt
 
     if (!name) {
       return NextResponse.json({ data: null, error: 'Tên chiến dịch là bắt buộc' }, { status: 400 })
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       brandName: brandName || undefined,
       status,
       accountIds,
+      autoReply,
       startAt: startAt ? new Date(startAt) : undefined,
       endAt: endAt ? new Date(endAt) : undefined,
     })
