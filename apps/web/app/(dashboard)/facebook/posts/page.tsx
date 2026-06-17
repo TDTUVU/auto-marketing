@@ -7,6 +7,7 @@ import { Post, Account } from '@/lib/db/schema'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AutoReplyBtn } from '@/components/posts/auto-reply-btn'
+import { MetricsBar } from '@/components/posts/metrics-bar'
 
 const statusIcon = {
   draft: <FileEdit className="size-3.5" />,
@@ -86,6 +87,9 @@ export default async function PostsPage() {
                           <div className="size-14 rounded-lg border border-zinc-200 bg-zinc-100 flex items-center justify-center text-xs text-zinc-500">+{post.imageUrls.length - 4}</div>
                         )}
                       </div>
+                    )}
+                    {status === 'published' && (
+                      <MetricsBar postId={id} initial={post.latestMetrics} />
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

@@ -16,6 +16,9 @@ export default async function FacebookOverviewPage() {
   const accountIds = fbAccounts.map((a) => a._id)
   const accountFilter = { accountId: { $in: accountIds } }
 
+  // AutomationLog không có accountId — scope qua postId của các bài thuộc account FB
+  const fbPostIds = (await Post.find(accountFilter).select('_id').lean()).map((p) => p._id)
+
   const [
     totalPosts,
     publishedPosts,
@@ -35,7 +38,7 @@ export default async function FacebookOverviewPage() {
     Product.countDocuments(accountFilter),
     Product.countDocuments({ ...accountFilter, isActive: true }),
     AutoPilotConfig.countDocuments({ ...accountFilter, enabled: true }),
-    AutomationLog.find().sort({ timestamp: -1 }).limit(10).lean(),
+    AutomationLog.find({ postId: { $in: fbPostIds } }).sort({ timestamp: -1 }).limit(10).lean(),
   ])
 
   const totalAccounts = accountIds.length

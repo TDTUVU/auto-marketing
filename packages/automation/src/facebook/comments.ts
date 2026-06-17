@@ -138,6 +138,29 @@ function deepFindComments(
   }
 }
 
+// Các nhãn UI Facebook tự chèn (thẻ gợi ý group/page, quảng cáo, "người bạn có thể biết"…).
+// Extractor bắt nhầm chúng như comment vì cũng có cấu trúc body.text + feedback.id.
+// Lọc sớm để không tạo row Comment / không gọi LLM cho rác.
+const FB_SUGGESTION_PREFIXES = [
+  'có thể bạn sẽ thích',
+  'gợi ý cho bạn',
+  'trang bạn có thể thích',
+  'nhóm bạn có thể thích',
+  'những người bạn có thể biết',
+  'người bạn có thể biết',
+  'được tài trợ',
+  'sponsored',
+  'suggested for you',
+  'suggested groups',
+  'suggested pages',
+  'people you may know',
+]
+
+function isFacebookSuggestion(text: string): boolean {
+  const t = text.trim().toLowerCase()
+  return FB_SUGGESTION_PREFIXES.some((p) => t.startsWith(p))
+}
+
 function normalizePostUrl(url: string): string {
   try {
     const parsed = new URL(url)
@@ -248,5 +271,11 @@ export async function fetchPostComments(
     await browser.close()
   }
 
-  return Array.from(found.values()).filter((c) => !c.hasOwnerReply)
+  const all = Array.from(found.values()).filter((c) => !c.hasOwnerReply)
+  const comments = all.filter((c) => !isFacebookSuggestion(c.text))
+  const dropped = all.length - comments.length
+  if (dropped > 0) {
+    console.log(`[fetchPostComments] bỏ qua ${dropped} thẻ gợi ý/quảng cáo FB (không phải comment)`)
+  }
+  return comments
 }

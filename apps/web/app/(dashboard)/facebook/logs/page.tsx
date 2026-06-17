@@ -2,12 +2,22 @@ export const dynamic = 'force-dynamic'
 
 import { CheckCircle, XCircle, ScrollText } from 'lucide-react'
 import { connectDB } from '@/lib/db'
-import { AutomationLog, Post } from '@/lib/db/schema'
+import { AutomationLog, Post, Account } from '@/lib/db/schema'
 import { Badge } from '@/components/ui/badge'
 
 export default async function LogsPage() {
   await connectDB()
-  const logs = await AutomationLog.find().sort({ timestamp: -1 }).limit(100).lean()
+
+  // AutomationLog không có accountId — scope qua postId của các bài thuộc account FB
+  const fbAccounts = await Account.find({ platform: 'facebook' }).select('_id').lean()
+  const fbPostIds = (
+    await Post.find({ accountId: { $in: fbAccounts.map((a) => a._id) } }).select('_id').lean()
+  ).map((p) => p._id)
+
+  const logs = await AutomationLog.find({ postId: { $in: fbPostIds } })
+    .sort({ timestamp: -1 })
+    .limit(100)
+    .lean()
 
   const postIds = [...new Set(logs.filter((l) => l.postId).map((l) => l.postId!.toString()))]
   const posts = await Post.find({ _id: { $in: postIds } }).select('content').lean()

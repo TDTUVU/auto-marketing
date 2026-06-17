@@ -188,18 +188,33 @@ async function uploadMedia(
 
 // ─── Post Tweet ─────────────────────────────────────────────────────────────
 
-function extractTweetUrl(data: Record<string, unknown>, userId: string): string | undefined {
-  const json = JSON.stringify(data)
+function extractTweetUrl(data: Record<string, unknown>): string | undefined {
+  // Lấy ĐÚNG rest_id của tweet trong create_tweet.tweet_results.result —
+  // KHÔNG regex "rest_id" đầu tiên (dễ trúng rest_id của user → URL sai → 404).
+  const root = data['data'] as Record<string, unknown> | undefined
+  const createTweet = root?.['create_tweet'] as Record<string, unknown> | undefined
+  const tweetResults = createTweet?.['tweet_results'] as Record<string, unknown> | undefined
+  const result = tweetResults?.['result'] as Record<string, unknown> | undefined
+  const tweetId = result?.['rest_id'] as string | undefined
 
-  // Extract rest_id from create_tweet result
-  const restIdMatch = json.match(/"rest_id"\s*:\s*"(\d+)"/)
-  if (restIdMatch?.[1]) {
-    return `https://x.com/i/status/${restIdMatch[1]}`
+  // screen_name của tác giả để dựng URL canonical
+  const core = result?.['core'] as Record<string, unknown> | undefined
+  const userResults = core?.['user_results'] as Record<string, unknown> | undefined
+  const userResult = userResults?.['result'] as Record<string, unknown> | undefined
+  const userLegacy = userResult?.['legacy'] as Record<string, unknown> | undefined
+  const userCore = userResult?.['core'] as Record<string, unknown> | undefined
+  const screenName = (userLegacy?.['screen_name'] ?? userCore?.['screen_name']) as string | undefined
+
+  if (tweetId) {
+    return screenName
+      ? `https://x.com/${screenName}/status/${tweetId}`
+      : `https://x.com/i/web/status/${tweetId}`
   }
 
-  // Fallback: search for tweet URL pattern
-  const urlMatch = json.match(/"(https:\/\/(?:x|twitter)\.com\/[^"]*\/status\/\d+)"/)
-  if (urlMatch?.[1]) return urlMatch[1]
+  // Fallback: tìm rest_id ngay trong tweet_results.result
+  const json = JSON.stringify(data)
+  const m = json.match(/"tweet_results"\s*:\s*\{\s*"result"\s*:\s*\{[^]*?"rest_id"\s*:\s*"(\d+)"/)
+  if (m?.[1]) return `https://x.com/i/web/status/${m[1]}`
 
   return undefined
 }
@@ -266,8 +281,19 @@ export async function postToTwitter(
       return { success: false, error: errors.map((e) => e.message).join('; '), timestamp: new Date() }
     }
 
-    const userId = extractTwitterUserId(cookies)
-    const postUrl = extractTweetUrl(json, userId)
+    const postUrl = extractTweetUrl(json)
+
+    // X có thể trả 200 không kèm errors nhưng KHÔNG tạo tweet (soft-block / giới hạn /
+    // queryId hết hạn). Không có postUrl = không có tweet rest_id → coi là thất bại thật.
+    if (!postUrl) {
+      const snippet = JSON.stringify(json).slice(0, 400)
+      console.error('[Twitter:post] Không thấy tweet trong response — có thể bị giới hạn:', snippet)
+      return {
+        success: false,
+        error: `X không trả về tweet đã đăng (tài khoản có thể bị giới hạn, hoặc queryId hết hạn). Response: ${snippet}`,
+        timestamp: new Date(),
+      }
+    }
 
     const result: AutomationResult = { success: true, timestamp: new Date() }
     if (postUrl) result.postUrl = postUrl

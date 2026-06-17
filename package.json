@@ -11,6 +11,7 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test:post": "tsx scripts/test_post.ts",
+    "test:metrics": "pnpm --filter @automation/core build && tsx --env-file=.env apps/web/test-metrics.ts",
     "worker": "pnpm --filter @automation/core build && tsx --env-file=.env apps/web/worker.ts"
   },
   "devDependencies": {

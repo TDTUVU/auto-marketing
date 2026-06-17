@@ -3,6 +3,7 @@ import { getPostQueue, getCommentQueue, startAutoPilotScheduler, scheduleComment
 import { worker } from './lib/queue/worker'
 import { commentWorker } from './lib/queue/commentWorker'
 import { autopilotWorker } from './lib/queue/autopilotWorker'
+import { metricsWorker } from './lib/queue/metricsWorker'
 import { connectDB } from './lib/db/index'
 import { Post } from './lib/db/schema'
 
@@ -39,6 +40,11 @@ autopilotWorker.on('ready', () => console.log('[AutoPilotWorker] Worker ready'))
 autopilotWorker.on('error', (err) => console.error('[AutoPilotWorker] Worker error:', err.message))
 autopilotWorker.on('completed', (job) => console.log(`[AutoPilotWorker] Job ${job.id} completed`))
 autopilotWorker.on('failed', (job, err) => console.error(`[AutoPilotWorker] Job ${job?.id} failed: ${err.message}`))
+
+metricsWorker.on('ready', () => console.log('[MetricsWorker] Worker ready'))
+metricsWorker.on('error', (err) => console.error('[MetricsWorker] Worker error:', err.message))
+metricsWorker.on('completed', (job) => console.log(`[MetricsWorker] Job ${job.id} completed`))
+metricsWorker.on('failed', (job, err) => console.error(`[MetricsWorker] Job ${job?.id} failed: ${err.message}`))
 
 startAutoPilotScheduler()
   .then(() => console.log('[AutoPilot] Scheduler registered (every 15 min)'))
@@ -98,10 +104,10 @@ async function restoreCommentJobs() {
 
 restoreCommentJobs().catch((err) => console.error('[CommentRestore] Error:', err.message))
 
-console.log('[Worker] Post + Comment + AutoPilot workers started — waiting for jobs...')
+console.log('[Worker] Post + Comment + AutoPilot + Metrics workers started — waiting for jobs...')
 
 async function shutdown() {
-  await Promise.all([worker.close(), commentWorker.close(), autopilotWorker.close()])
+  await Promise.all([worker.close(), commentWorker.close(), autopilotWorker.close(), metricsWorker.close()])
   process.exit(0)
 }
 
