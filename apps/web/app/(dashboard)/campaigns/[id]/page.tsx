@@ -51,12 +51,13 @@ export default async function CampaignDetailPage({
   const hasViews = agg.totals.views > 0
 
   const accountDocs = await Account.find({ _id: { $in: campaign.accountIds ?? [] } })
-    .select('_id name platform')
+    .select('_id name platform categories')
     .lean()
   const allocAccounts: AllocAccount[] = accountDocs.map((a) => ({
     id: a._id.toString(),
     name: a.name,
     platform: a.platform,
+    categories: a.categories ?? [],
   }))
   const allocation = campaign.allocation
     ? {

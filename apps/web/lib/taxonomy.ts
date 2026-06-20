@@ -22,6 +22,32 @@ export function ageRangeLabel(value?: string): string | undefined {
   return AGE_RANGES.find((a) => a.value === value)?.label ?? value
 }
 
+// Khung giờ "vàng" gợi ý đăng bài theo ngành (giờ trong ngày, 0–23) — thị trường VN.
+// Đây chỉ là GỢI Ý; người dùng vẫn chỉnh tay được từng giờ.
+// Key viết thường để khớp không phân biệt hoa/thường với category người dùng nhập.
+export const CATEGORY_TIME_WINDOWS: Record<string, number[]> = {
+  'đồ ăn': [10, 16, 20], // trước bữa trưa/tối + thèm ăn buổi tối
+  'quần áo': [12, 20, 21], // nghỉ trưa lướt + tối rảnh mua sắm
+  'công nghệ': [9, 12, 20], // sáng đi làm, trưa, tối
+  'sức khỏe': [7, 19], // sáng sớm tập, tối thư giãn
+  'làm đẹp': [10, 20, 21], // giữa sáng + tối
+  'mẹ & bé': [9, 14, 21], // lúc con ngủ / rảnh tay
+  'nhà cửa': [19, 20], // tối, cuối ngày
+  'du lịch': [12, 20], // trưa + tối lên kế hoạch
+  'thể thao': [6, 18], // sáng sớm + chiều tối
+  'giáo dục': [9, 20], // sáng + tối học
+}
+
+/** Giờ vàng gộp từ nhiều category (union, unique, sorted). Rỗng nếu không khớp ngành nào. */
+export function peakHoursFor(categories: string[] = []): number[] {
+  const set = new Set<number>()
+  for (const c of categories) {
+    const hours = CATEGORY_TIME_WINDOWS[c.trim().toLowerCase()]
+    if (hours) hours.forEach((h) => set.add(h))
+  }
+  return Array.from(set).sort((a, b) => a - b)
+}
+
 // categories: chọn nhiều, gợi ý sẵn nhưng cho tự nhập thêm
 export const CATEGORY_SUGGESTIONS: string[] = [
   'Đồ ăn',
