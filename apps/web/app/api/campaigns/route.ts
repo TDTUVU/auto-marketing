@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { Campaign } from '@/lib/db/schema'
+import { applyCampaignAllocation } from '@/lib/campaigns'
 
 const STATUSES = ['active', 'paused', 'ended'] as const
 
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     const accountIds = Array.isArray(body['accountIds']) ? (body['accountIds'] as string[]) : []
     const startAt = body['startAt'] as string | undefined
     const endAt = body['endAt'] as string | undefined
+    const autoReply = body['autoReply'] !== false // mặc định bật, creator có thể tắt
 
     if (!name) {
       return NextResponse.json({ data: null, error: 'Tên chiến dịch là bắt buộc' }, { status: 400 })
@@ -34,9 +36,15 @@ export async function POST(request: Request) {
       brandName: brandName || undefined,
       status,
       accountIds,
+      autoReply,
       startAt: startAt ? new Date(startAt) : undefined,
       endAt: endAt ? new Date(endAt) : undefined,
     })
+
+    // Tạo campaign có account = tự bật autopilot (phân bổ mặc định) → đảm bảo tính automation.
+    if (accountIds.length > 0) {
+      await applyCampaignAllocation(campaign)
+    }
 
     return NextResponse.json({ data: { _id: campaign._id.toString() }, error: null })
   } catch (err) {

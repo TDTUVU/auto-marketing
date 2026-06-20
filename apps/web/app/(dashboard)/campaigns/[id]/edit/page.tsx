@@ -30,6 +30,7 @@ export default async function EditCampaignPage({
     name: campaign.name,
     ...(campaign.brandName ? { brandName: campaign.brandName } : {}),
     status: campaign.status,
+    autoReply: campaign.autoReply ?? true,
     accountIds: (campaign.accountIds ?? []).map((a: { toString(): string }) => a.toString()),
     ...(campaign.startAt ? { startAt: new Date(campaign.startAt).toISOString() } : {}),
     ...(campaign.endAt ? { endAt: new Date(campaign.endAt).toISOString() } : {}),

@@ -75,31 +75,34 @@ export function createCommentWorker(
   )
 }
 
+// BullMQ 5: dùng Job Scheduler (id ổn định) thay cho repeatable cũ — repeatable cũ
+// trả .id=undefined + .key=hash nên không map ngược về postId để dedup/remove/track được.
+const COMMENT_POLL_EVERY = 5 * 60 * 1000
+const schedulerId = (postId: string) => `comment-poll-${postId}`
+
 export async function scheduleCommentPoll(data: CommentJobData): Promise<string> {
-  const job = await getCommentQueue().add('poll-comments', data, {
-    repeat: { every: 5 * 60 * 1000 },
-    attempts: 2,
-    backoff: { type: 'exponential', delay: 30_000 },
-    jobId: `comment-poll-${data.postId}`,
-  })
-  return job.id ?? ''
+  const id = schedulerId(data.postId)
+  await getCommentQueue().upsertJobScheduler(
+    id,
+    { every: COMMENT_POLL_EVERY },
+    {
+      name: 'poll-comments',
+      data,
+      opts: { attempts: 2, backoff: { type: 'exponential', delay: 30_000 } },
+    }
+  )
+  return id
 }
 
 export async function removeCommentPoll(postId: string): Promise<void> {
-  const repeatables = await getCommentQueue().getRepeatableJobs()
-  for (const job of repeatables) {
-    if (job.id === `comment-poll-${postId}`) {
-      await getCommentQueue().removeRepeatableByKey(job.key)
-      return
-    }
-  }
+  await getCommentQueue().removeJobScheduler(schedulerId(postId))
 }
 
 export async function getTrackedPostIds(): Promise<Set<string>> {
-  const repeatables = await getCommentQueue().getRepeatableJobs()
+  const schedulers = await getCommentQueue().getJobSchedulers(0, -1, true)
   const ids = new Set<string>()
-  for (const job of repeatables) {
-    const match = job.id?.match(/^comment-poll-(.+)$/)
+  for (const s of schedulers) {
+    const match = s.key?.match(/^comment-poll-(.+)$/)
     if (match) ids.add(match[1]!)
   }
   return ids

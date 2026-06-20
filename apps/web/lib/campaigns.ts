@@ -1,5 +1,7 @@
-import { Account, Post } from '@/lib/db/schema'
-import type { ICampaign } from '@/lib/db/schema'
+import { Types } from 'mongoose'
+import { Account, Post, Campaign, AutoPilotConfig } from '@/lib/db/schema'
+import type { ICampaign, ICampaignAllocation } from '@/lib/db/schema'
+import { computeAllocation, type AllocResult } from '@/lib/allocation'
 
 export interface MetricTotals {
   views: number
@@ -179,4 +181,88 @@ export async function collectCampaignPostIds(campaign: ICampaign): Promise<strin
       return true
     })
     .map((p) => p._id.toString())
+}
+
+const DEFAULT_PER_ACCOUNT = 2
+
+type CampaignLike = {
+  _id: Types.ObjectId | string
+  accountIds?: (Types.ObjectId | string)[]
+  allocation?: ICampaignAllocation | null
+  autoReply?: boolean
+}
+
+/**
+ * Áp phân bổ tài nguyên cho campaign → ghi AutoPilotConfig của từng account
+ * (bật autopilot) + lưu allocation lên campaign. Dùng chung cho cả tạo/sửa
+ * campaign lẫn panel phân bổ.
+ *
+ * - `opts` có (từ panel) → dùng total/weights đó.
+ * - `opts` không có (tạo/sửa) → dùng allocation cũ, hoặc mặc định:
+ *   total = số account × 2, chia đều cho mỗi platform.
+ */
+export async function applyCampaignAllocation(
+  campaign: CampaignLike,
+  opts?: { totalPostsPerDay: number; platformWeights: Record<string, number> }
+): Promise<AllocResult[]> {
+  const accountIds = campaign.accountIds ?? []
+  if (accountIds.length === 0) return []
+
+  const accounts = await Account.find({ _id: { $in: accountIds } })
+    .select('_id name platform')
+    .lean()
+  const allocAccounts = accounts.map((a) => ({
+    id: a._id.toString(),
+    name: a.name,
+    platform: a.platform,
+  }))
+  const platforms = [...new Set(allocAccounts.map((a) => a.platform))]
+
+  let total: number
+  let weights: Record<string, number>
+  if (opts) {
+    total = opts.totalPostsPerDay
+    weights = opts.platformWeights
+  } else {
+    const prev = campaign.allocation
+    total = prev?.totalPostsPerDay ?? allocAccounts.length * DEFAULT_PER_ACCOUNT
+    const equal = Math.round(100 / Math.max(platforms.length, 1))
+    // Giữ trọng số cũ; platform mới (chưa có trong allocation cũ) → chia đều.
+    weights = Object.fromEntries(platforms.map((p) => [p, prev?.platformWeights?.[p] ?? equal]))
+  }
+
+  // Auto-reply do người tạo campaign quyết định (mặc định bật).
+  const autoReplyEnabled = campaign.autoReply ?? true
+
+  const results = computeAllocation(total, weights, allocAccounts)
+  for (const r of results) {
+    await AutoPilotConfig.findOneAndUpdate(
+      { accountId: r.accountId },
+      {
+        $set: {
+          postsPerDay: Math.max(r.postsPerDay, 1),
+          postTimes: r.postTimes.length > 0 ? r.postTimes : ['12:00'],
+          enabled: r.postsPerDay > 0,
+          autoReplyEnabled,
+        },
+        $setOnInsert: { accountId: r.accountId },
+      },
+      { upsert: true }
+    )
+  }
+
+  await Campaign.updateOne(
+    { _id: campaign._id },
+    { $set: { allocation: { totalPostsPerDay: total, platformWeights: weights, appliedAt: new Date() } } }
+  )
+
+  return results
+}
+
+/** Tắt autopilot cho các account (vd bị gỡ khỏi campaign). */
+export async function disableCampaignAutopilot(
+  accountIds: (Types.ObjectId | string)[]
+): Promise<void> {
+  if (accountIds.length === 0) return
+  await AutoPilotConfig.updateMany({ accountId: { $in: accountIds } }, { $set: { enabled: false } })
 }

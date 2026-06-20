@@ -4,13 +4,15 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Calendar, Pencil, Eye, Heart, MessageCircle, Repeat2, FileText } from 'lucide-react'
 import { connectDB } from '@/lib/db'
-import { Campaign } from '@/lib/db/schema'
+import { Campaign, Account } from '@/lib/db/schema'
 import { aggregateCampaign } from '@/lib/campaigns'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MetricStats, fmt } from '@/components/campaigns/metric-stats'
 import { DeleteCampaignBtn } from '@/components/campaigns/delete-campaign-btn'
 import { RefreshAllBtn } from '@/components/campaigns/refresh-all-btn'
+import { AllocationPanel } from '@/components/campaigns/allocation-panel'
+import type { AllocAccount } from '@/lib/allocation'
 
 const statusMeta: Record<string, { label: string; variant: 'published' | 'scheduled' | 'default' }> = {
   active: { label: 'Đang chạy', variant: 'published' },
@@ -47,6 +49,21 @@ export default async function CampaignDetailPage({
   const agg = await aggregateCampaign(campaign)
   const meta = statusMeta[campaign.status] ?? statusMeta['active']!
   const hasViews = agg.totals.views > 0
+
+  const accountDocs = await Account.find({ _id: { $in: campaign.accountIds ?? [] } })
+    .select('_id name platform')
+    .lean()
+  const allocAccounts: AllocAccount[] = accountDocs.map((a) => ({
+    id: a._id.toString(),
+    name: a.name,
+    platform: a.platform,
+  }))
+  const allocation = campaign.allocation
+    ? {
+        totalPostsPerDay: campaign.allocation.totalPostsPerDay,
+        platformWeights: (campaign.allocation.platformWeights ?? {}) as Record<string, number>,
+      }
+    : null
 
   const totalCards: { label: string; value: number; icon: React.ComponentType<{ className?: string }> }[] = [
     { label: 'Bài đăng', value: agg.totals.posts, icon: FileText },
@@ -131,6 +148,14 @@ export default async function CampaignDetailPage({
           </div>
         </div>
       )}
+
+      {/* Phân bổ tài nguyên */}
+      <AllocationPanel
+        campaignId={id}
+        accounts={allocAccounts}
+        byPlatform={agg.byPlatform}
+        allocation={allocation}
+      />
 
       {/* Breakdown theo account */}
       {agg.byAccount.length > 1 && (
