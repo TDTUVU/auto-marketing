@@ -8,11 +8,16 @@ import { CampaignForm, type AccountOption } from '@/components/campaigns/campaig
 
 export default async function NewCampaignPage() {
   await connectDB()
-  const accounts = await Account.find().select('_id name platform').sort({ createdAt: -1 }).lean()
+  const accounts = await Account.find()
+    .select('_id name platform ageRange categories')
+    .sort({ createdAt: -1 })
+    .lean()
   const options: AccountOption[] = accounts.map((a) => ({
     _id: a._id.toString(),
     name: a.name,
     platform: a.platform,
+    ageRange: a.ageRange,
+    categories: a.categories ?? [],
   }))
 
   return (

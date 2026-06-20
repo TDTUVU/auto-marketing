@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { ClassificationFields } from '@/components/accounts/classification-fields'
 import { UserPlus } from 'lucide-react'
 
 export function AccountForm({ basePath = '/dashboard/facebook', defaultPlatform = 'facebook' }: { basePath?: string; defaultPlatform?: string } = {}) {
@@ -19,6 +20,8 @@ export function AccountForm({ basePath = '/dashboard/facebook', defaultPlatform 
     cookieJson: '',
     pageId: '',
   })
+  const [ageRange, setAgeRange] = useState('')
+  const [categories, setCategories] = useState<string[]>([])
 
   function set(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -49,6 +52,8 @@ export function AccountForm({ basePath = '/dashboard/facebook', defaultPlatform 
           platform: form.platform,
           cookieJson: form.cookieJson.trim(),
           pageId: form.pageId.trim() || undefined,
+          ageRange: ageRange || undefined,
+          categories,
           userAgent: navigator.userAgent,
         }),
       })
@@ -131,6 +136,15 @@ export function AccountForm({ basePath = '/dashboard/facebook', defaultPlatform 
         <p className="text-xs text-zinc-400">
           Nếu muốn đăng bài lên Page thay vì profile, nhập Page ID tại đây
         </p>
+      </div>
+
+      <div className="border-t border-zinc-100 pt-4">
+        <ClassificationFields
+          ageRange={ageRange}
+          categories={categories}
+          onAgeRangeChange={setAgeRange}
+          onCategoriesChange={setCategories}
+        />
       </div>
 
       {error && (

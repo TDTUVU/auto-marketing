@@ -3,11 +3,12 @@ import { connectDB } from '@/lib/db'
 import { Account } from '@/lib/db/schema'
 import { encrypt } from '@/lib/crypto'
 import { parseCookieInput } from '@/lib/session'
+import { AGE_RANGE_VALUES, normalizeCategories } from '@/lib/taxonomy'
 
 export async function GET() {
   await connectDB()
   const accounts = await Account.find()
-    .select('name platform pageId createdAt')
+    .select('name platform pageId ageRange categories createdAt')
     .sort({ createdAt: -1 })
     .lean()
   return NextResponse.json({ data: accounts, error: null })
@@ -21,6 +22,9 @@ export async function POST(request: Request) {
     const cookieJson = (body['cookieJson'] as string | undefined)?.trim()
     const pageId = (body['pageId'] as string | undefined)?.trim()
     const userAgent = (body['userAgent'] as string | undefined)?.trim()
+    const ageRangeRaw = (body['ageRange'] as string | undefined)?.trim()
+    const ageRange = ageRangeRaw && AGE_RANGE_VALUES.includes(ageRangeRaw) ? ageRangeRaw : undefined
+    const categories = normalizeCategories(body['categories'])
 
     if (!name || !platform || !cookieJson) {
       return NextResponse.json(
@@ -60,6 +64,8 @@ export async function POST(request: Request) {
       platform,
       encryptedSession,
       pageId: pageId || undefined,
+      ageRange,
+      categories,
     })
 
     return NextResponse.json({
