@@ -18,11 +18,16 @@ export default async function EditCampaignPage({
   const campaign = await Campaign.findById(id).lean()
   if (!campaign) notFound()
 
-  const accounts = await Account.find().select('_id name platform').sort({ createdAt: -1 }).lean()
+  const accounts = await Account.find()
+    .select('_id name platform ageRange categories')
+    .sort({ createdAt: -1 })
+    .lean()
   const options: AccountOption[] = accounts.map((a) => ({
     _id: a._id.toString(),
     name: a.name,
     platform: a.platform,
+    ageRange: a.ageRange,
+    categories: a.categories ?? [],
   }))
 
   const initial: CampaignInitial = {

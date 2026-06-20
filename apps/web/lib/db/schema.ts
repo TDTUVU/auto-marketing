@@ -7,6 +7,8 @@ export interface IAccount extends Document {
   encryptedSession: string
   cookiesPath?: string
   pageId?: string
+  ageRange?: string
+  categories: string[]
   createdAt: Date
 }
 
@@ -17,6 +19,8 @@ const AccountSchema = new Schema<IAccount>(
     encryptedSession: { type: String, default: '' },
     cookiesPath: { type: String },
     pageId: { type: String },
+    ageRange: { type: String },
+    categories: { type: [String], default: [] },
   },
   { timestamps: true }
 )

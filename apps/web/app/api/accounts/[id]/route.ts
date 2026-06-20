@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/db'
 import { Account } from '@/lib/db/schema'
 import { encrypt } from '@/lib/crypto'
 import { parseCookieInput } from '@/lib/session'
+import { AGE_RANGE_VALUES, normalizeCategories } from '@/lib/taxonomy'
 
 export async function PATCH(
   request: Request,
@@ -14,6 +15,29 @@ export async function PATCH(
     const body = await request.json() as Record<string, unknown>
     const cookieJson = (body['cookieJson'] as string | undefined)?.trim()
     const userAgent = (body['userAgent'] as string | undefined)?.trim()
+
+    // Nhánh phân loại: cập nhật ageRange/categories, không cần cookie
+    if (cookieJson === undefined && ('ageRange' in body || 'categories' in body)) {
+      await connectDB()
+      const account = await Account.findById(id)
+      if (!account) {
+        return NextResponse.json({ data: null, error: 'Account not found' }, { status: 404 })
+      }
+
+      if ('ageRange' in body) {
+        const ageRangeRaw = (body['ageRange'] as string | undefined)?.trim()
+        account.ageRange = ageRangeRaw && AGE_RANGE_VALUES.includes(ageRangeRaw) ? ageRangeRaw : undefined
+      }
+      if ('categories' in body) {
+        account.categories = normalizeCategories(body['categories'])
+      }
+      await account.save()
+
+      return NextResponse.json({
+        data: { updated: true, ageRange: account.ageRange, categories: account.categories },
+        error: null,
+      })
+    }
 
     if (!cookieJson) {
       return NextResponse.json({ data: null, error: 'cookieJson là bắt buộc' }, { status: 400 })

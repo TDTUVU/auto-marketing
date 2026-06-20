@@ -127,7 +127,8 @@ export function AllocationPanel({ campaignId, accounts, byPlatform, allocation }
 
       {/* Preview per-account */}
       <div className="border-t border-zinc-100 pt-4">
-        <p className="text-xs font-medium text-zinc-500 mb-2">Sẽ áp dụng vào AutoPilot:</p>
+        <p className="text-xs font-medium text-zinc-500 mb-1">Sẽ áp dụng vào AutoPilot:</p>
+        <p className="text-xs text-zinc-400 mb-2">Giờ đăng được gợi ý theo ngành hàng của tài khoản — chỉnh tay được ở trang Auto-pilot.</p>
         <div className="space-y-1.5">
           {preview.map((r) => (
             <div key={r.accountId} className="flex items-center justify-between gap-3 text-sm">

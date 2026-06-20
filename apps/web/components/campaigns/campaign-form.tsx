@@ -1,16 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Megaphone } from 'lucide-react'
+import { AGE_RANGES, ageRangeLabel } from '@/lib/taxonomy'
 
 export interface AccountOption {
   _id: string
   name: string
   platform: string
+  ageRange?: string
+  categories?: string[]
 }
 
 export interface CampaignInitial {
@@ -58,6 +62,8 @@ export function CampaignForm({
   })
   const [accountIds, setAccountIds] = useState<string[]>(campaign?.accountIds ?? [])
   const [autoReply, setAutoReply] = useState<boolean>(campaign?.autoReply ?? true)
+  const [ageFilter, setAgeFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   function set(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -116,10 +122,40 @@ export function CampaignForm({
     }
   }
 
-  const grouped = accounts.reduce<Record<string, AccountOption[]>>((acc, a) => {
+  const presentCategories = useMemo(() => {
+    const s = new Set<string>()
+    accounts.forEach((a) => (a.categories ?? []).forEach((c) => s.add(c)))
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'))
+  }, [accounts])
+
+  const presentAges = useMemo(() => {
+    const s = new Set<string>()
+    accounts.forEach((a) => { if (a.ageRange) s.add(a.ageRange) })
+    return AGE_RANGES.filter((a) => s.has(a.value))
+  }, [accounts])
+
+  const filteredAccounts = accounts.filter((a) => {
+    if (ageFilter && a.ageRange !== ageFilter) return false
+    if (catFilter && !(a.categories ?? []).includes(catFilter)) return false
+    return true
+  })
+
+  const grouped = filteredAccounts.reduce<Record<string, AccountOption[]>>((acc, a) => {
     ;(acc[a.platform] ??= []).push(a)
     return acc
   }, {})
+
+  const hasClassification = presentAges.length > 0 || presentCategories.length > 0
+  const filteredIds = filteredAccounts.map((a) => a._id)
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => accountIds.includes(id))
+
+  function toggleAllFiltered() {
+    if (allFilteredSelected) {
+      setAccountIds((prev) => prev.filter((id) => !filteredIds.includes(id)))
+    } else {
+      setAccountIds((prev) => Array.from(new Set([...prev, ...filteredIds])))
+    }
+  }
 
   return (
     <form onSubmit={submit} className="space-y-5">
@@ -173,35 +209,101 @@ export function CampaignForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Tài khoản tham gia</Label>
+        <div className="flex items-center justify-between">
+          <Label>Tài khoản tham gia</Label>
+          {accountIds.length > 0 && (
+            <span className="text-xs text-zinc-400">{accountIds.length} đã chọn</span>
+          )}
+        </div>
+
         {accounts.length === 0 ? (
           <p className="text-sm text-zinc-400">Chưa có tài khoản nào — thêm tài khoản trước.</p>
         ) : (
-          <div className="space-y-3">
-            {Object.entries(grouped).map(([platform, accs]) => (
-              <div key={platform}>
-                <p className="text-xs font-medium text-zinc-500 mb-1.5">
-                  {platformLabel[platform] ?? platform}
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {accs.map((a) => (
-                    <label
-                      key={a._id}
-                      className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm cursor-pointer hover:bg-zinc-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={accountIds.includes(a._id)}
-                        onChange={() => toggleAccount(a._id)}
-                        className="size-4"
-                      />
-                      <span className="truncate">{a.name}</span>
-                    </label>
+          <>
+            {hasClassification && (
+              <div className="flex flex-wrap items-center gap-2 pb-1">
+                <select
+                  aria-label="Lọc theo độ tuổi"
+                  value={ageFilter}
+                  onChange={(e) => setAgeFilter(e.target.value)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Mọi độ tuổi</option>
+                  {presentAges.map((a) => (
+                    <option key={a.value} value={a.value}>{a.label}</option>
                   ))}
-                </div>
+                </select>
+
+                <select
+                  aria-label="Lọc theo ngành hàng"
+                  value={catFilter}
+                  onChange={(e) => setCatFilter(e.target.value)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Mọi ngành hàng</option>
+                  {presentCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+
+                {filteredIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAllFiltered}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    {allFilteredSelected ? 'Bỏ chọn tất cả' : `Chọn tất cả (${filteredIds.length})`}
+                  </button>
+                )}
+
+                {(ageFilter || catFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => { setAgeFilter(''); setCatFilter('') }}
+                    className="text-xs text-zinc-400 hover:text-zinc-600"
+                  >
+                    Xóa lọc
+                  </button>
+                )}
               </div>
-            ))}
-          </div>
+            )}
+
+            {filteredAccounts.length === 0 ? (
+              <p className="text-sm text-zinc-400">Không có tài khoản khớp bộ lọc.</p>
+            ) : (
+              <div className="space-y-3">
+                {Object.entries(grouped).map(([platform, accs]) => (
+                  <div key={platform}>
+                    <p className="text-xs font-medium text-zinc-500 mb-1.5">
+                      {platformLabel[platform] ?? platform}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {accs.map((a) => (
+                        <label
+                          key={a._id}
+                          className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm cursor-pointer hover:bg-zinc-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={accountIds.includes(a._id)}
+                            onChange={() => toggleAccount(a._id)}
+                            className="size-4 shrink-0"
+                          />
+                          <span className="truncate">{a.name}</span>
+                          <span className="flex flex-wrap gap-1 ml-auto shrink-0">
+                            {a.ageRange && <Badge variant="scheduled">{ageRangeLabel(a.ageRange)}</Badge>}
+                            {(a.categories ?? []).map((c) => (
+                              <Badge key={c}>{c}</Badge>
+                            ))}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

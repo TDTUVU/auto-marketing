@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
-import { Zap, X, Plus, MessageSquare } from 'lucide-react'
+import { Zap, X, Plus, MessageSquare, Clock } from 'lucide-react'
+import { suggestPostTimes } from '@/lib/allocation'
 
 interface Account {
   _id: string
   name: string
   platform: string
+  categories?: string[]
 }
 
 interface Config {
@@ -187,7 +189,24 @@ export function AutoPilotConfigForm({
             </div>
 
             <div className="space-y-1.5 mb-4">
-              <Label>Giờ đăng bài</Label>
+              <div className="flex items-center justify-between">
+                <Label>Giờ đăng bài</Label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateConfig(acc._id, 'postTimes', suggestPostTimes(config.postsPerDay, acc.categories))
+                  }
+                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"
+                  title={
+                    acc.categories && acc.categories.length > 0
+                      ? `Gợi ý theo ngành: ${acc.categories.join(', ')}`
+                      : 'Chưa phân loại ngành — sẽ rải đều trong ngày. Phân loại account để gợi ý sát hơn.'
+                  }
+                >
+                  <Clock className="size-3" />
+                  Gợi ý giờ theo ngành
+                </button>
+              </div>
               <div className="space-y-2">
                 {config.postTimes.map((time, i) => (
                   <div key={i} className="flex items-center gap-2">

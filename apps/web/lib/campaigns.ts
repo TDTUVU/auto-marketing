@@ -209,12 +209,13 @@ export async function applyCampaignAllocation(
   if (accountIds.length === 0) return []
 
   const accounts = await Account.find({ _id: { $in: accountIds } })
-    .select('_id name platform')
+    .select('_id name platform categories')
     .lean()
   const allocAccounts = accounts.map((a) => ({
     id: a._id.toString(),
     name: a.name,
     platform: a.platform,
+    categories: a.categories ?? [],
   }))
   const platforms = [...new Set(allocAccounts.map((a) => a.platform))]
 

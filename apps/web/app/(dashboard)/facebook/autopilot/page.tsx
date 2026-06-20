@@ -38,6 +38,7 @@ export default async function AutoPilotPage() {
     _id: a._id.toString(),
     name: a.name,
     platform: a.platform,
+    categories: a.categories ?? [],
   }))
 
   return (
