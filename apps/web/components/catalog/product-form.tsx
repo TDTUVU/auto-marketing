@@ -145,7 +145,7 @@ export function ProductForm({
         <Label htmlFor="name">Tên sản phẩm</Label>
         <Input
           id="name"
-          placeholder="VD: Áo thun cotton pastel"
+          placeholder="VD: Tên sản phẩm của bạn"
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
         />
@@ -156,7 +156,7 @@ export function ProductForm({
         <Textarea
           id="description"
           rows={3}
-          placeholder="VD: Áo thun cotton 100%, form rộng, nhiều màu pastel, phù hợp mùa hè..."
+          placeholder="VD: Đặc điểm nổi bật, công dụng, chất liệu/thành phần, đối tượng phù hợp..."
           value={form.description}
           onChange={(e) => set('description', e.target.value)}
         />
@@ -178,7 +178,7 @@ export function ProductForm({
           <Label htmlFor="category">Danh mục</Label>
           <Input
             id="category"
-            placeholder="VD: Áo, Quần, Phụ kiện"
+            placeholder="VD: Thời trang, Sức khỏe, Đồ ăn, Phụ kiện"
             value={form.category}
             onChange={(e) => set('category', e.target.value)}
           />

@@ -28,12 +28,16 @@ interface CatalogListProps {
 
 export function CatalogList({ products, accountMap, categories, basePath = '/dashboard/facebook' }: CatalogListProps & { basePath?: string }) {
   const [search, setSearch] = useState('')
+  const [accountFilter, setAccountFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
+
+  const accountOptions = Object.entries(accountMap).sort((a, b) => a[1].localeCompare(b[1]))
 
   const filtered = products.filter((p) => {
     const q = search.toLowerCase()
     if (q && !p.name.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) return false
+    if (accountFilter && p.accountId !== accountFilter) return false
     if (categoryFilter && p.category !== categoryFilter) return false
     if (activeFilter === 'active' && !p.isActive) return false
     if (activeFilter === 'inactive' && p.isActive) return false
@@ -52,6 +56,19 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
             className="pl-9"
           />
         </div>
+        {accountOptions.length > 1 && (
+          <select
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            aria-label="Lọc theo tài khoản"
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Tất cả tài khoản</option>
+            {accountOptions.map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+        )}
         {categories.length > 0 && (
           <select
             value={categoryFilter}
@@ -77,7 +94,7 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
         </select>
       </div>
 
-      {(search || categoryFilter || activeFilter !== 'all') && (
+      {(search || accountFilter || categoryFilter || activeFilter !== 'all') && (
         <p className="text-xs text-zinc-400 mb-3">
           Hiển thị {filtered.length} / {products.length} sản phẩm
         </p>
