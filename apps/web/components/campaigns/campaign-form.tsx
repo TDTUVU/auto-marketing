@@ -42,6 +42,12 @@ function toDateInput(iso?: string): string {
   return d.toISOString().slice(0, 10)
 }
 
+function todayInput(): string {
+  const d = new Date()
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 10)
+}
+
 export function CampaignForm({
   accounts,
   campaign,
@@ -57,7 +63,7 @@ export function CampaignForm({
     name: campaign?.name ?? '',
     brandName: campaign?.brandName ?? '',
     status: campaign?.status ?? 'active',
-    startAt: toDateInput(campaign?.startAt),
+    startAt: campaign ? toDateInput(campaign.startAt) : todayInput(),
     endAt: toDateInput(campaign?.endAt),
   })
   const [accountIds, setAccountIds] = useState<string[]>(campaign?.accountIds ?? [])
