@@ -2,7 +2,7 @@ import { connectDB } from '../db/index'
 import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
 import { postToFacebook, tokensFromSession, fetchFbTokens } from '@automation/core'
-import { postToTwitter, extractTwitterTokens } from '@automation/core'
+import { postToTwitterViaDOM } from '@automation/core'
 import type { PhotoInput, AutomationResult, SessionData } from '@automation/core'
 import { loadSessionForAccount, updateSessionTokens } from '../session'
 
@@ -58,8 +58,9 @@ async function handleTwitterPost(
   photos: PhotoInput[],
   session: SessionData
 ): Promise<AutomationResult> {
-  const tokens = extractTwitterTokens(session.cookies)
-  return postToTwitter(session.cookies, session.userAgent, tokens, {
+  // DOM automation: để client web của X tự sinh x-client-transaction-id,
+  // tránh lỗi "this request looks like it might be automated" của HTTP replay.
+  return postToTwitterViaDOM(session.cookies, session.userAgent, {
     text: content,
     photos,
   })

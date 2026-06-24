@@ -1,3 +1,6 @@
+import dns from 'dns'
+dns.setServers(['8.8.8.8', '1.1.1.1'])
+
 import IORedis from 'ioredis'
 import { getPostQueue, getCommentQueue, startAutoPilotScheduler, scheduleCommentPoll } from './lib/queue/jobs'
 import { worker } from './lib/queue/worker'

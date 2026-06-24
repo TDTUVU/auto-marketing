@@ -89,7 +89,9 @@ export function PostForm({ accounts, basePath = '/dashboard/facebook', redirectP
       fd.append('accountId', accountId)
       fd.append('idea', form.idea.trim())
       fd.append('tone', form.tone)
-      if (form.scheduledAt) fd.append('scheduledAt', new Date(form.scheduledAt).toISOString())
+      // datetime-local không kèm timezone → ép diễn giải theo giờ Việt Nam (GMT+7),
+      // không phụ thuộc timezone của trình duyệt. Khớp với giờ gợi ý (cũng là giờ VN).
+      if (form.scheduledAt) fd.append('scheduledAt', new Date(`${form.scheduledAt}:00+07:00`).toISOString())
       for (const img of images) {
         fd.append('images', img.file)
       }

@@ -48,7 +48,6 @@ export default async function CampaignDetailPage({
 
   const agg = await aggregateCampaign(campaign)
   const meta = statusMeta[campaign.status] ?? statusMeta['active']!
-  const hasViews = agg.totals.views > 0
 
   const accountDocs = await Account.find({ _id: { $in: campaign.accountIds ?? [] } })
     .select('_id name platform categories')
@@ -68,7 +67,7 @@ export default async function CampaignDetailPage({
 
   const totalCards: { label: string; value: number; icon: React.ComponentType<{ className?: string }> }[] = [
     { label: 'Bài đăng', value: agg.totals.posts, icon: FileText },
-    ...(hasViews ? [{ label: 'Lượt xem', value: agg.totals.views, icon: Eye }] : []),
+    { label: 'Lượt xem', value: agg.totals.views, icon: Eye },
     { label: 'Lượt thích', value: agg.totals.likes, icon: Heart },
     { label: 'Bình luận', value: agg.totals.comments, icon: MessageCircle },
     { label: 'Chia sẻ', value: agg.totals.shares, icon: Repeat2 },
@@ -143,7 +142,7 @@ export default async function CampaignDetailPage({
                 <span className="text-sm font-medium text-zinc-800">
                   {platformLabel[p.platform] ?? p.platform}
                 </span>
-                <MetricStats stats={{ ...p }} />
+                <MetricStats stats={{ ...p }} showZeroViews />
               </div>
             ))}
           </div>
@@ -174,7 +173,7 @@ export default async function CampaignDetailPage({
                     {platformLabel[a.platform] ?? a.platform}
                   </span>
                 </span>
-                <MetricStats stats={{ ...a }} />
+                <MetricStats stats={{ ...a }} showZeroViews />
               </div>
             ))}
           </div>
@@ -206,7 +205,7 @@ export default async function CampaignDetailPage({
                 <p className="text-sm text-zinc-900 line-clamp-2 leading-relaxed">{post.content}</p>
                 <div className="mt-2.5">
                   {post.metrics ? (
-                    <MetricStats stats={post.metrics} />
+                    <MetricStats stats={post.metrics} showZeroViews />
                   ) : (
                     <span className="text-xs text-zinc-400">Chưa có dữ liệu metrics</span>
                   )}
