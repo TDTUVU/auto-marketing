@@ -8,9 +8,45 @@ import { Input } from '@/components/ui/input'
 import {
   computeAllocation,
   suggestWeights,
+  largestRemainder,
   type AllocAccount,
   type PlatformPerf,
 } from '@/lib/allocation'
+
+/** Chuẩn hóa trọng số về phần trăm nguyên, tổng đúng 100. */
+function normalizeTo100(platforms: string[], raw: Record<string, number>): Record<string, number> {
+  if (platforms.length === 0) return {}
+  const ints = largestRemainder(platforms.map((p) => Math.max(0, Number(raw[p]) || 0)), 100)
+  return Object.fromEntries(platforms.map((p, i) => [p, ints[i]!]))
+}
+
+/**
+ * Chỉnh 1 platform về `value` (%), phần còn lại (100 - value) chia cho các platform
+ * khác theo đúng tỉ lệ hiện tại của chúng → tổng luôn = 100. Tăng cái này thì các
+ * cái kia tự giảm và ngược lại.
+ */
+function rebalance(
+  weights: Record<string, number>,
+  platforms: string[],
+  changed: string,
+  value: number
+): Record<string, number> {
+  const v = Math.max(0, Math.min(100, Math.round(value)))
+  const others = platforms.filter((p) => p !== changed)
+  if (others.length === 0) return { [changed]: 100 }
+
+  const remaining = 100 - v
+  const otherSum = others.reduce((s, p) => s + (Number(weights[p]) || 0), 0)
+  const ratios =
+    otherSum > 0 ? others.map((p) => (Number(weights[p]) || 0) / otherSum) : others.map(() => 1)
+  const ints = largestRemainder(ratios, remaining)
+
+  const next: Record<string, number> = { [changed]: v }
+  others.forEach((p, i) => {
+    next[p] = ints[i]!
+  })
+  return next
+}
 
 const platformLabel: Record<string, string> = {
   facebook: 'Facebook',
@@ -36,21 +72,15 @@ export function AllocationPanel({ campaignId, accounts, byPlatform, allocation }
   const [total, setTotal] = useState<number>(
     allocation?.totalPostsPerDay || Math.max(accounts.length * 2, platforms.length)
   )
-  const [weights, setWeights] = useState<Record<string, number>>(
-    allocation?.platformWeights ?? suggested
+  const [weights, setWeights] = useState<Record<string, number>>(() =>
+    normalizeTo100(platforms, allocation?.platformWeights ?? suggested)
   )
   const [loading, setLoading] = useState(false)
 
-  const weightSum = platforms.reduce((s, p) => s + (Number(weights[p]) || 0), 0)
   const preview = useMemo(
     () => computeAllocation(total, weights, accounts),
     [total, weights, accounts]
   )
-
-  function pct(p: string): number {
-    if (weightSum <= 0) return 0
-    return Math.round(((Number(weights[p]) || 0) / weightSum) * 100)
-  }
 
   async function apply() {
     setLoading(true)
@@ -82,7 +112,7 @@ export function AllocationPanel({ campaignId, accounts, byPlatform, allocation }
           <SlidersHorizontal className="size-4" />
           Phân bổ tài nguyên đăng bài
         </h2>
-        <Button variant="outline" size="sm" onClick={() => setWeights(suggested)} title="Chia theo hiệu suất engagement/bài">
+        <Button variant="outline" size="sm" onClick={() => setWeights(normalizeTo100(platforms, suggested))} title="Chia theo hiệu suất engagement/bài">
           <Sparkles className="size-4" />
           Dùng gợi ý
         </Button>
@@ -101,25 +131,28 @@ export function AllocationPanel({ campaignId, accounts, byPlatform, allocation }
         />
       </div>
 
-      {/* Trọng số platform */}
-      <div className="space-y-2 mb-5">
+      {/* Trọng số platform — tổng luôn = 100%, kéo một cái thì các cái khác tự bù */}
+      <div className="space-y-3 mb-5">
         {platforms.map((p) => (
           <div key={p} className="flex items-center gap-3">
             <span className="text-sm font-medium text-zinc-800 w-28">
               {platformLabel[p] ?? p}
             </span>
-            <Input
-              type="number"
+            <input
+              type="range"
               min={0}
+              max={100}
+              step={5}
               value={weights[p] ?? 0}
-              onChange={(e) =>
-                setWeights((w) => ({ ...w, [p]: Math.max(0, Number(e.target.value) || 0) }))
-              }
-              className="w-24"
+              onChange={(e) => setWeights((w) => rebalance(w, platforms, p, Number(e.target.value)))}
+              disabled={platforms.length < 2}
+              className="flex-1 accent-zinc-900 disabled:opacity-50"
             />
-            <span className="text-xs text-zinc-400 w-12 text-right">{pct(p)}%</span>
+            <span className="text-sm font-medium text-zinc-700 w-12 text-right tabular-nums">
+              {weights[p] ?? 0}%
+            </span>
             {suggested[p] != null && (
-              <span className="text-xs text-zinc-400">gợi ý {suggested[p]}%</span>
+              <span className="text-xs text-zinc-400 w-20">gợi ý {suggested[p]}%</span>
             )}
           </div>
         ))}

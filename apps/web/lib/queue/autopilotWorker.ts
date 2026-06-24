@@ -3,6 +3,10 @@ import { Account, Post, Product, Image, AutoPilotConfig, AutomationLog, Campaign
 import { createAutoPilotWorker, schedulePost, type PostJobData, type ImageJobData } from './jobs'
 import { generateContent } from '../llm/content'
 
+// Bài scheduled chỉ tính vào quota nếu mới tạo trong khoảng này — đủ để chặn tạo
+// trùng trong cùng một slot, nhưng không để bài kẹt (worker chết) khóa quota mãi.
+const SCHEDULED_FRESH_MS = 20 * 60 * 1000
+
 async function handleAutoPilotTick(): Promise<void> {
   await connectDB()
 
@@ -19,16 +23,32 @@ async function handleAutoPilotTick(): Promise<void> {
       // đang active VÀ nằm trong khoảng [startAt, endAt]. Account không thuộc campaign
       // nào → autopilot chạy độc lập như cũ.
       const campaigns = await Campaign.find({ accountIds: config.accountId })
-        .select('status startAt endAt')
+        .select('status startAt endAt createdAt')
         .lean()
+
+      // Mốc bắt đầu đếm quota theo campaign: chỉ tính bài đăng TỪ KHI campaign bắt đầu
+      // chạy, để bài đăng trước khi tạo campaign không ăn mất quota của campaign.
+      let campaignCountSince: Date | null = null
       if (campaigns.length > 0) {
-        const runnable = campaigns.some((c) => {
+        const runnable = campaigns.filter((c) => {
           if (c.status !== 'active') return false
           if (c.startAt && now < new Date(c.startAt)) return false
           if (c.endAt && now > endOfDay(new Date(c.endAt))) return false
           return true
         })
-        if (!runnable) continue
+        if (runnable.length === 0) continue
+
+        // Mốc = sớm nhất trong các campaign đang chạy; mỗi campaign lấy thời điểm
+        // muộn hơn giữa createdAt và startAt (giống campaignWindow ở lib/campaigns).
+        for (const c of runnable) {
+          const created = c.createdAt ? new Date(c.createdAt) : null
+          const startAt = c.startAt ? new Date(c.startAt) : null
+          const wStart =
+            created && startAt ? (created > startAt ? created : startAt) : (created ?? startAt)
+          if (wStart && (!campaignCountSince || wStart < campaignCountSince)) {
+            campaignCountSince = wStart
+          }
+        }
       }
 
       const shouldPost = config.postTimes.some((time: string) => {
@@ -43,10 +63,20 @@ async function handleAutoPilotTick(): Promise<void> {
       const todayStart = new Date(now)
       todayStart.setHours(0, 0, 0, 0)
 
+      // Không tính bài tạo trước khi campaign bắt đầu, nhưng vẫn giữ cap theo NGÀY.
+      const countSince =
+        campaignCountSince && campaignCountSince > todayStart ? campaignCountSince : todayStart
+
+      // Đếm bài đã đăng + bài scheduled còn "tươi" (vừa tạo, đang chờ worker đăng).
+      // Bỏ qua bài scheduled bị kẹt (worker chết) để không khóa quota vĩnh viễn.
+      const freshCutoff = new Date(now.getTime() - SCHEDULED_FRESH_MS)
       const postsToday = await Post.countDocuments({
         accountId: config.accountId,
-        createdAt: { $gte: todayStart },
-        status: { $in: ['scheduled', 'published'] },
+        createdAt: { $gte: countSince },
+        $or: [
+          { status: 'published' },
+          { status: 'scheduled', createdAt: { $gte: freshCutoff } },
+        ],
       })
 
       if (postsToday >= config.postsPerDay) continue
