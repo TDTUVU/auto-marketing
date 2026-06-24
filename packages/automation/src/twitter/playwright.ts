@@ -1,5 +1,3 @@
-import { chromium } from 'playwright-extra'
-import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -7,8 +5,19 @@ import type { AutomationResult, CookieData, PostPayload } from '../types.js'
 import { extractTweetUrl } from './api.js'
 import { extractTweetId, extractReplies, type TwitterReplyData } from './comments.js'
 
-// Stealth: ẩn các dấu hiệu automation (navigator.webdriver, ...)
-chromium.use(StealthPlugin())
+// KHÔNG import playwright-extra/stealth ở top-level: Next bundle web sẽ evaluate
+// stealth lúc build → lỗi "n.typeOf is not a function". Load động + register 1 lần.
+// (Cùng lý do với twitter/metrics.ts.)
+let _stealthReady = false
+async function getStealthChromium() {
+  const { chromium } = await import('playwright-extra')
+  if (!_stealthReady) {
+    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default
+    chromium.use(StealthPlugin())
+    _stealthReady = true
+  }
+  return chromium
+}
 
 // Mặc định headless. Nếu X vẫn challenge "looks automated", đặt TWITTER_HEADLESS=false
 // để chạy browser thật có giao diện — khó bị phát hiện hơn nhiều.
@@ -36,6 +45,7 @@ function toPlaywrightCookies(cookies: CookieData[]) {
 
 // Mở browser thật + nạp cookie session X. Dùng chung cho post / reply / đọc replies.
 async function launchX(cookies: CookieData[], userAgent: string) {
+  const chromium = await getStealthChromium()
   const browser = await chromium.launch({
     headless: HEADLESS,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
