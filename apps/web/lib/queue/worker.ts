@@ -2,9 +2,24 @@ import { connectDB } from '../db/index'
 import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
 import { postToFacebook, tokensFromSession, fetchFbTokens } from '@automation/core'
-import { postToTwitter, extractTwitterTokens } from '@automation/core'
+import { postToTwitterViaDOM } from '@automation/core'
 import type { PhotoInput, AutomationResult, SessionData } from '@automation/core'
 import { loadSessionForAccount, updateSessionTokens } from '../session'
+
+// Hạn tối đa cho 1 lần đăng. Lệnh gọi mạng (FB token/upload, Playwright X) nếu treo
+// lúc mạng chập chờn sẽ chiếm slot concurrency:1 vĩnh viễn (job vẫn await → lock vẫn
+// được gia hạn → BullMQ KHÔNG coi là stalled). Timeout ép job fail để giải phóng hàng đợi.
+const POST_TIMEOUT_MS = Number(process.env['POST_JOB_TIMEOUT_MS'] ?? 3 * 60 * 1000)
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} quá hạn sau ${ms}ms`)), ms)
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v) },
+      (e) => { clearTimeout(timer); reject(e) }
+    )
+  })
+}
 
 async function handleFacebookPost(
   accountId: string,
@@ -58,8 +73,9 @@ async function handleTwitterPost(
   photos: PhotoInput[],
   session: SessionData
 ): Promise<AutomationResult> {
-  const tokens = extractTwitterTokens(session.cookies)
-  return postToTwitter(session.cookies, session.userAgent, tokens, {
+  // DOM automation: để client web của X tự sinh x-client-transaction-id,
+  // tránh lỗi "this request looks like it might be automated" của HTTP replay.
+  return postToTwitterViaDOM(session.cookies, session.userAgent, {
     text: content,
     photos,
   })
@@ -102,10 +118,18 @@ async function handlePostJob(data: PostJobData): Promise<void> {
   let result: AutomationResult
   switch (account.platform) {
     case 'facebook':
-      result = await handleFacebookPost(accountId, content, photos, session, account.pageId)
+      result = await withTimeout(
+        handleFacebookPost(accountId, content, photos, session, account.pageId),
+        POST_TIMEOUT_MS,
+        'Facebook post'
+      )
       break
     case 'twitter':
-      result = await handleTwitterPost(content, photos, session)
+      result = await withTimeout(
+        handleTwitterPost(content, photos, session),
+        POST_TIMEOUT_MS,
+        'Twitter post'
+      )
       break
     default:
       result = { success: false, error: `Platform "${account.platform}" chưa hỗ trợ`, timestamp: new Date() }

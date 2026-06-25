@@ -55,6 +55,24 @@ function endOfDay(d: Date): Date {
 }
 
 /**
+ * Khoảng thời gian hiệu lực của campaign để gom bài.
+ * Mốc bắt đầu = muộn hơn giữa startAt và thời điểm TẠO campaign (chính xác tới giây),
+ * để KHÔNG tính các bài đã đăng trước khi campaign được tạo.
+ */
+function campaignWindow(campaign: {
+  startAt?: Date
+  endAt?: Date
+  createdAt?: Date
+}): { start: Date | null; end: Date | null } {
+  const createdAt = campaign.createdAt ? new Date(campaign.createdAt) : null
+  const startAt = campaign.startAt ? new Date(campaign.startAt) : null
+  const start =
+    createdAt && startAt ? (createdAt > startAt ? createdAt : startAt) : (createdAt ?? startAt)
+  const end = campaign.endAt ? endOfDay(new Date(campaign.endAt)) : null
+  return { start, end }
+}
+
+/**
  * Gom metrics của 1 campaign: mọi bài đã đăng từ các account được chọn,
  * trong khoảng startAt–endAt (nếu có). Cộng dồn latestMetrics của từng bài.
  */
@@ -79,8 +97,7 @@ export async function aggregateCampaign(campaign: ICampaign): Promise<CampaignAg
     .sort({ publishedAt: -1, createdAt: -1 })
     .lean()
 
-  const start = campaign.startAt ? new Date(campaign.startAt) : null
-  const end = campaign.endAt ? endOfDay(new Date(campaign.endAt)) : null
+  const { start, end } = campaignWindow(campaign)
 
   const totals = emptyTotals()
   const platformAcc = new Map<string, MetricTotals>()
@@ -170,8 +187,7 @@ export async function collectCampaignPostIds(campaign: ICampaign): Promise<strin
     .select('publishedAt createdAt')
     .lean()
 
-  const start = campaign.startAt ? new Date(campaign.startAt) : null
-  const end = campaign.endAt ? endOfDay(new Date(campaign.endAt)) : null
+  const { start, end } = campaignWindow(campaign)
 
   return posts
     .filter((p) => {

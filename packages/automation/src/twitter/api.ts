@@ -188,7 +188,7 @@ async function uploadMedia(
 
 // ─── Post Tweet ─────────────────────────────────────────────────────────────
 
-function extractTweetUrl(data: Record<string, unknown>): string | undefined {
+export function extractTweetUrl(data: Record<string, unknown>): string | undefined {
   // Lấy ĐÚNG rest_id của tweet trong create_tweet.tweet_results.result —
   // KHÔNG regex "rest_id" đầu tiên (dễ trúng rest_id của user → URL sai → 404).
   const root = data['data'] as Record<string, unknown> | undefined

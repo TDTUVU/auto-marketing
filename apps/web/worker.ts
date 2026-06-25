@@ -1,11 +1,14 @@
+import dns from 'dns'
+dns.setServers(['8.8.8.8', '1.1.1.1'])
+
 import IORedis from 'ioredis'
-import { getPostQueue, getCommentQueue, startAutoPilotScheduler, scheduleCommentPoll } from './lib/queue/jobs'
+import { getPostQueue, getCommentQueue, startAutoPilotScheduler, scheduleCommentPoll, schedulePost, type ImageJobData } from './lib/queue/jobs'
 import { worker } from './lib/queue/worker'
 import { commentWorker } from './lib/queue/commentWorker'
 import { autopilotWorker } from './lib/queue/autopilotWorker'
 import { metricsWorker } from './lib/queue/metricsWorker'
 import { connectDB } from './lib/db/index'
-import { Post } from './lib/db/schema'
+import { Post, Image } from './lib/db/schema'
 
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379'
 
@@ -105,6 +108,76 @@ async function restoreCommentJobs() {
 }
 
 restoreCommentJobs().catch((err) => console.error('[CommentRestore] Error:', err.message))
+
+// ─── Self-healing: re-enqueue bài kẹt 'scheduled' ──────────────────────────
+// Khi worker rớt mạng/khởi động lại, các bài đã được TẠO nhưng chưa đăng vẫn nằm
+// 'scheduled' trong DB (job BullMQ biến mất). Quét định kỳ + lúc khởi động để xếp
+// lại job (idempotent qua jobId=postId). → reconnect là tự đăng lại bài bị kẹt.
+//
+// Bỏ qua bài quá cũ để không "đội mồ" nội dung lỗi thời khi worker tắt lâu;
+// các bài này để clean_stuck_posts xử lý.
+const POST_RECONCILE_MAX_AGE_MS = Number(
+  process.env['POST_RECONCILE_MAX_AGE_MS'] ?? 6 * 60 * 60 * 1000
+)
+const POST_RECONCILE_EVERY_MS = Number(
+  process.env['POST_RECONCILE_EVERY_MS'] ?? 5 * 60 * 1000
+)
+
+async function restoreScheduledPosts() {
+  await connectDB()
+  const minTime = new Date(Date.now() - POST_RECONCILE_MAX_AGE_MS)
+
+  const posts = await Post.find({
+    status: 'scheduled',
+    $or: [
+      { scheduledAt: { $gte: minTime } },
+      { scheduledAt: { $exists: false }, createdAt: { $gte: minTime } },
+      { scheduledAt: null, createdAt: { $gte: minTime } },
+    ],
+  })
+    .select('_id accountId content imageUrls scheduledAt createdAt')
+    .lean()
+
+  if (posts.length === 0) return
+
+  let restored = 0
+  for (const post of posts) {
+    try {
+      const images: ImageJobData[] = []
+      for (const filename of post.imageUrls ?? []) {
+        const img = await Image.findOne({ filename }).lean()
+        if (img) {
+          images.push({
+            base64: img.data.toString('base64'),
+            filename: img.filename,
+            mimeType: img.mimeType,
+          })
+        }
+      }
+      await schedulePost(
+        {
+          postId: post._id.toString(),
+          accountId: post.accountId.toString(),
+          content: post.content,
+          images,
+        },
+        post.scheduledAt ? new Date(post.scheduledAt) : new Date(post.createdAt)
+      )
+      restored++
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[PostReconcile] Failed to re-enqueue post ${post._id}:`, msg)
+    }
+  }
+  if (restored > 0) {
+    console.log(`[PostReconcile] Re-enqueued ${restored}/${posts.length} scheduled post(s)`)
+  }
+}
+
+restoreScheduledPosts().catch((err) => console.error('[PostReconcile] Error:', err.message))
+setInterval(() => {
+  restoreScheduledPosts().catch((err) => console.error('[PostReconcile] Error:', err.message))
+}, POST_RECONCILE_EVERY_MS)
 
 console.log('[Worker] Post + Comment + AutoPilot + Metrics workers started — waiting for jobs...')
 

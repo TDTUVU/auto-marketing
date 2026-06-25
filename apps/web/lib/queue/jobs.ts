@@ -4,7 +4,13 @@ import IORedis from 'ioredis'
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379'
 
 function makeConnection() {
-  return new IORedis(REDIS_URL, { maxRetriesPerRequest: null })
+  return new IORedis(REDIS_URL, {
+    maxRetriesPerRequest: null,
+    // Redis ở Railway qua internet nhà → DNS/host chập chờn (ENOTFOUND). Giữ kết nối
+    // tự hồi: retry vô hạn với backoff tăng dần (cap 10s), và reconnect khi lỗi.
+    retryStrategy: (times) => Math.min(times * 500, 10_000),
+    reconnectOnError: () => true,
+  })
 }
 
 // Lazy-initialized — không kết nối lúc import, chỉ kết nối khi thực sự dùng
@@ -167,9 +173,16 @@ export async function enqueueMetricsRefresh(postId: string): Promise<string> {
 export async function schedulePost(data: PostJobData, scheduledAt: Date): Promise<string> {
   const delay = Math.max(0, scheduledAt.getTime() - Date.now())
   const job = await getPostQueue().add('publish-post', data, {
+    // jobId = postId → idempotent: reconciler có gọi lại nhiều lần thì BullMQ tự dedup,
+    // không tạo job trùng cho cùng một bài.
+    jobId: data.postId,
     delay,
     attempts: 3,
     backoff: { type: 'exponential', delay: 60_000 },
+    // Dọn job sau khi xong/fail để giải phóng jobId, cho phép reconciler enqueue lại
+    // bài vẫn còn 'scheduled' (job cũ đã biến mất). Lịch sử lỗi đã lưu ở DB + AutomationLog.
+    removeOnComplete: true,
+    removeOnFail: true,
   })
   return job.id ?? ''
 }

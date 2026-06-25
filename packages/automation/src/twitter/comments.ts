@@ -136,7 +136,7 @@ export async function fetchTweetReplies(
   return replies
 }
 
-function extractReplies(
+export function extractReplies(
   obj: unknown,
   focalTweetId: string,
   ownerId: string,

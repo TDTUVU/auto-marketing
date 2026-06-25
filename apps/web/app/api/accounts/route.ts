@@ -59,6 +59,16 @@ export async function POST(request: Request) {
 
     await connectDB()
 
+    if (pageId) {
+      const existing = await Account.findOne({ pageId }).select('name').lean()
+      if (existing) {
+        return NextResponse.json(
+          { data: null, error: `Page ID này đã được dùng bởi tài khoản "${existing.name}"` },
+          { status: 409 }
+        )
+      }
+    }
+
     const account = await Account.create({
       name,
       platform,

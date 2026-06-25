@@ -3,7 +3,7 @@ import { Account, Post, Comment, Product, AutoPilotConfig, AutomationLog } from 
 import { createCommentWorker, type CommentJobData } from './jobs'
 import { tokensFromSession, fetchFbTokens, createComment } from '@automation/core'
 import { fetchPostComments } from '@automation/core'
-import { replyToTweet, extractTwitterTokens, fetchTweetReplies, extractTwitterUserId } from '@automation/core'
+import { replyToTweetViaDOM, fetchTweetRepliesViaDOM, extractTwitterUserId } from '@automation/core'
 import type { FbTokens, SessionData } from '@automation/core'
 import { generateCommentReply, type ProductInfo } from '../llm/content'
 import { loadSessionForAccount } from '../session'
@@ -70,9 +70,8 @@ async function handleTwitterComments(
   replyTone: string,
   skipSpam: boolean
 ): Promise<{ replied: number; skipped: number }> {
-  const tokens = extractTwitterTokens(session.cookies)
   const ownerId = extractTwitterUserId(session.cookies)
-  const replies = await fetchTweetReplies(session.cookies, session.userAgent, tokens, data.postUrl, ownerId)
+  const replies = await fetchTweetRepliesViaDOM(session.cookies, session.userAgent, data.postUrl, ownerId)
 
   const normalized: NormalizedComment[] = replies.map((r) => ({
     id: r.tweetId,
@@ -89,7 +88,7 @@ async function handleTwitterComments(
     replyTone,
     skipSpam,
     async (tweetId, replyText) => {
-      const result = await replyToTweet(session.cookies, session.userAgent, tokens, tweetId, replyText)
+      const result = await replyToTweetViaDOM(session.cookies, session.userAgent, tweetId, replyText)
       return result.success
     }
   )
