@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { Locator } from 'playwright'
 import type { AutomationResult, CookieData, PostPayload } from '../types.js'
 import { extractTweetUrl } from './api.js'
 import { extractTweetId, extractReplies, type TwitterReplyData } from './comments.js'
@@ -26,6 +27,24 @@ const HEADLESS = process.env['TWITTER_HEADLESS'] !== 'false'
 function randomDelay(minMs: number, maxMs: number): Promise<void> {
   const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Focus ô soạn tweet, chịu được overlay tạm thời che mất (scrim/banner/tooltip của X
+ * lúc modal /compose/post chưa ổn định). Click thường thử vài lần để overlay kịp biến
+ * mất; vẫn bị chặn thì force-click bỏ qua actionability — tránh kẹt 30s ở bước focus
+ * (nguyên nhân fail bài X: "subtree intercepts pointer events").
+ */
+async function focusEditor(editor: Locator): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await editor.click({ timeout: 8_000 })
+      return
+    } catch {
+      if (attempt < 3) await randomDelay(800, 1500)
+    }
+  }
+  await editor.click({ force: true, timeout: 8_000 })
 }
 
 // Cookie X sống ở .x.com (một số legacy ở .twitter.com) — normalize domain.
@@ -110,7 +129,7 @@ export async function postToTwitterViaDOM(
     // Ô soạn tweet (trong modal)
     const editor = dialog.locator('[data-testid="tweetTextarea_0"]')
     await editor.waitFor({ state: 'visible', timeout: 30_000 })
-    await editor.click()
+    await focusEditor(editor)
     await randomDelay(400, 900)
 
     // Gõ từng ký tự cho giống người thật
@@ -142,7 +161,7 @@ export async function postToTwitterViaDOM(
     // Submit bằng Ctrl+Enter — X hỗ trợ sẵn shortcut này, né lỗi actionability
     // của nút đăng (nút hay bị toggle aria-disabled khi X re-render).
     const primaryWait = page.waitForResponse(isCreateTweet, { timeout: 20_000 }).catch(() => null)
-    await editor.click()
+    await focusEditor(editor)
     await randomDelay(200, 500)
     await page.keyboard.press('Control+Enter')
 
@@ -307,7 +326,7 @@ export async function replyToTweetViaDOM(
 
     const editor = dialog.locator('[data-testid="tweetTextarea_0"]')
     await editor.waitFor({ state: 'visible', timeout: 30_000 })
-    await editor.click()
+    await focusEditor(editor)
     await randomDelay(400, 900)
 
     await page.keyboard.type(replyText, { delay: 30 + Math.random() * 40 })
@@ -321,7 +340,7 @@ export async function replyToTweetViaDOM(
 
     // Submit bằng Ctrl+Enter, fallback click nút đăng (giống post)
     const primaryWait = page.waitForResponse(isCreateTweet, { timeout: 20_000 }).catch(() => null)
-    await editor.click()
+    await focusEditor(editor)
     await randomDelay(200, 500)
     await page.keyboard.press('Control+Enter')
 
