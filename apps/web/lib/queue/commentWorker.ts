@@ -1,10 +1,9 @@
 import { connectDB } from '../db/index'
 import { Account, Post, Comment, Product, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createCommentWorker, type CommentJobData } from './jobs'
-import { tokensFromSession, fetchFbTokens, createComment } from '@automation/core'
-import { fetchPostComments } from '@automation/core'
+import { fetchPostComments, replyToCommentViaDOM } from '@automation/core'
 import { replyToTweetViaDOM, fetchTweetRepliesViaDOM, extractTwitterUserId } from '@automation/core'
-import type { FbTokens, SessionData } from '@automation/core'
+import type { SessionData } from '@automation/core'
 import { generateCommentReply, type ProductInfo } from '../llm/content'
 import { loadSessionForAccount } from '../session'
 
@@ -23,18 +22,6 @@ async function handleFacebookComments(
   replyTone: string,
   skipSpam: boolean
 ): Promise<{ replied: number; skipped: number }> {
-  let tokens: FbTokens
-  if (session.tokens?.fb_dtsg) {
-    tokens = tokensFromSession(session.userId, session.tokens)
-  } else {
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-  }
-
-  const refreshTokens = async () => {
-    console.log('[CommentWorker:fb] Refreshing tokens...')
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-  }
-
   const comments = await fetchPostComments(session, data.postUrl)
 
   const normalized: NormalizedComment[] = comments.map((c) => ({
@@ -44,6 +31,8 @@ async function handleFacebookComments(
     text: c.text,
   }))
 
+  // Reply bằng DOM (browser thật) thay cho createComment HTTP replay — đồng bộ với
+  // việc đăng bài đã chuyển sang DOM, giữ phiên bền hơn. Định vị comment theo text.
   return processReplies(
     normalized,
     data,
@@ -51,12 +40,14 @@ async function handleFacebookComments(
     productInfos,
     replyTone,
     skipSpam,
-    async (commentId, replyText) => {
-      let result = await createComment(session.cookies, session.userAgent, tokens, commentId, replyText)
-      if (!result.success && result.error?.includes('1357032')) {
-        await refreshTokens()
-        result = await createComment(session.cookies, session.userAgent, tokens, commentId, replyText)
-      }
+    async (comment, replyText) => {
+      const result = await replyToCommentViaDOM(
+        session.cookies,
+        session.userAgent,
+        data.postUrl,
+        comment.text,
+        replyText
+      )
       return result.success
     }
   )
@@ -87,8 +78,8 @@ async function handleTwitterComments(
     productInfos,
     replyTone,
     skipSpam,
-    async (tweetId, replyText) => {
-      const result = await replyToTweetViaDOM(session.cookies, session.userAgent, tweetId, replyText)
+    async (comment, replyText) => {
+      const result = await replyToTweetViaDOM(session.cookies, session.userAgent, comment.id, replyText)
       return result.success
     }
   )
@@ -101,7 +92,7 @@ async function processReplies(
   productInfos: ProductInfo[],
   replyTone: string,
   skipSpam: boolean,
-  sendReply: (commentId: string, replyText: string) => Promise<boolean>
+  sendReply: (comment: NormalizedComment, replyText: string) => Promise<boolean>
 ): Promise<{ replied: number; skipped: number }> {
   const { postId, postContent } = data
 
@@ -151,7 +142,7 @@ async function processReplies(
       continue
     }
 
-    const success = await sendReply(comment.id, replyResult.reply)
+    const success = await sendReply(comment, replyResult.reply)
 
     if (success) {
       await Comment.findOneAndUpdate(

@@ -1,10 +1,9 @@
 import { connectDB } from '../db/index'
 import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
-import { postToFacebook, tokensFromSession, fetchFbTokens } from '@automation/core'
-import { postToTwitterViaDOM } from '@automation/core'
+import { postToFacebookViaDOM, postToTwitterViaDOM } from '@automation/core'
 import type { PhotoInput, AutomationResult, SessionData } from '@automation/core'
-import { loadSessionForAccount, updateSessionTokens } from '../session'
+import { loadSessionForAccount } from '../session'
 
 // Hạn tối đa cho 1 lần đăng. Lệnh gọi mạng (FB token/upload, Playwright X) nếu treo
 // lúc mạng chập chờn sẽ chiếm slot concurrency:1 vĩnh viễn (job vẫn await → lock vẫn
@@ -22,50 +21,17 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 async function handleFacebookPost(
-  accountId: string,
   content: string,
   photos: PhotoInput[],
-  session: SessionData,
-  pageId?: string
+  session: SessionData
 ): Promise<AutomationResult> {
-  let tokens
-  if (session.tokens?.fb_dtsg) {
-    console.log('[PostWorker:fb] Using cached tokens')
-    tokens = tokensFromSession(session.userId, session.tokens)
-  } else {
-    console.log('[PostWorker:fb] Fetching new tokens from Facebook...')
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-    await updateSessionTokens(accountId, {
-      fb_dtsg: tokens.fbDtsg,
-      lsd: tokens.lsd,
-      rev: tokens.rev,
-      hsi: '',
-    })
-  }
-
-  let result = await postToFacebook(session.cookies, session.userAgent, tokens, {
+  // DOM automation bằng browser thật thay cho HTTP replay: tận dụng cookie i_user để
+  // đăng dưới danh nghĩa Page, giữ phiên trong browser thật → bền hơn, tránh FB hủy
+  // phiên do nghi automation (lỗi 1357001 "Chưa đăng nhập").
+  return postToFacebookViaDOM(session.cookies, session.userAgent, {
     text: content,
     photos,
-    pageId,
   })
-
-  if (!result.success && result.error?.includes('1357032') && session.tokens?.fb_dtsg) {
-    console.log('[PostWorker:fb] Cached tokens failed, fetching fresh tokens...')
-    tokens = await fetchFbTokens(session.cookies, session.userAgent)
-    await updateSessionTokens(accountId, {
-      fb_dtsg: tokens.fbDtsg,
-      lsd: tokens.lsd,
-      rev: tokens.rev,
-      hsi: '',
-    })
-    result = await postToFacebook(session.cookies, session.userAgent, tokens, {
-      text: content,
-      photos,
-      pageId,
-    })
-  }
-
-  return result
 }
 
 async function handleTwitterPost(
@@ -119,7 +85,7 @@ async function handlePostJob(data: PostJobData): Promise<void> {
   switch (account.platform) {
     case 'facebook':
       result = await withTimeout(
-        handleFacebookPost(accountId, content, photos, session, account.pageId),
+        handleFacebookPost(content, photos, session),
         POST_TIMEOUT_MS,
         'Facebook post'
       )
