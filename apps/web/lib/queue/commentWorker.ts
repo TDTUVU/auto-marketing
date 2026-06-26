@@ -14,6 +14,11 @@ interface NormalizedComment {
   text: string
 }
 
+// Chuẩn hóa để so khớp nội dung (bỏ hoa/thường + gộp khoảng trắng).
+function normalizeText(s: string): string {
+  return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
 async function handleFacebookComments(
   data: CommentJobData,
   account: InstanceType<typeof Account>,
@@ -100,16 +105,33 @@ async function processReplies(
 ): Promise<{ replied: number; skipped: number }> {
   const { postId, postContent } = data
 
-  const existingReplied = new Set(
-    (await Comment.find({ postId, repliedAt: { $exists: true } }).select('facebookCommentId').lean())
-      .map((c) => c.facebookCommentId)
-  )
+  const repliedDocs = await Comment.find({ postId, repliedAt: { $exists: true } })
+    .select('facebookCommentId replyText')
+    .lean()
+  const existingReplied = new Set(repliedDocs.map((c) => c.facebookCommentId))
+
+  // Reply của CHÍNH Page bị FB render thành "comment" mới (kèm @tên người được nhắc) →
+  // poll sau bắt lại → bot tự trả lời chính mình (loop) hoặc fail liên tục. FB không trả
+  // authorId nên không lọc theo id được → đối chiếu nội dung với các reply Page đã gửi cho
+  // post này. Chỉ so các reply đủ dài để tránh khớp nhầm câu ngắn.
+  const sentReplies = repliedDocs
+    .map((c) => normalizeText(c.replyText ?? ''))
+    .filter((t) => t.length >= 12)
+  const isOwnReply = (text: string): boolean => {
+    const t = normalizeText(text)
+    if (t.length < 12) return false // chừa comment ngắn của khách (vd "cảm ơn shop")
+    return sentReplies.some((r) => t.includes(r) || r.includes(t))
+  }
 
   let replied = 0
   let skipped = 0
 
   for (const comment of comments) {
     if (existingReplied.has(comment.id)) continue
+    if (isOwnReply(comment.text)) {
+      // Bỏ qua reply của chính Page — không tạo Comment row, không gọi LLM, không reply.
+      continue
+    }
 
     await Comment.findOneAndUpdate(
       { facebookCommentId: comment.id },
