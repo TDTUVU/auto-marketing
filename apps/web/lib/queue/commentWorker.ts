@@ -5,7 +5,7 @@ import { fetchPostComments, replyToCommentViaDOM } from '@automation/core'
 import { replyToTweetViaDOM, fetchTweetRepliesViaDOM, extractTwitterUserId } from '@automation/core'
 import type { SessionData } from '@automation/core'
 import { generateCommentReply, type ProductInfo } from '../llm/content'
-import { loadSessionForAccount } from '../session'
+import { loadSessionForAccount, saveSessionCookies } from '../session'
 
 interface NormalizedComment {
   id: string
@@ -22,7 +22,10 @@ async function handleFacebookComments(
   replyTone: string,
   skipSpam: boolean
 ): Promise<{ replied: number; skipped: number }> {
-  const comments = await fetchPostComments(session, data.postUrl)
+  // onCookies: lưu lại cookie FB vừa xoay vòng sau mỗi lần poll → giữ phiên sống lâu.
+  const persist = (cookies: Parameters<typeof saveSessionCookies>[1]) =>
+    saveSessionCookies(data.accountId, cookies)
+  const comments = await fetchPostComments(session, data.postUrl, { onCookies: persist })
 
   const normalized: NormalizedComment[] = comments.map((c) => ({
     id: c.feedbackId,
@@ -46,7 +49,8 @@ async function handleFacebookComments(
         session.userAgent,
         data.postUrl,
         comment.text,
-        replyText
+        replyText,
+        { onCookies: persist }
       )
       return result.success
     }

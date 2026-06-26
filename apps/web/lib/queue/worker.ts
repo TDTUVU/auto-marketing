@@ -3,7 +3,7 @@ import { Account, Post, AutoPilotConfig, AutomationLog } from '../db/schema'
 import { createPostWorker, scheduleCommentPoll, type PostJobData } from './jobs'
 import { postToFacebookViaDOM, postToTwitterViaDOM } from '@automation/core'
 import type { PhotoInput, AutomationResult, SessionData } from '@automation/core'
-import { loadSessionForAccount } from '../session'
+import { loadSessionForAccount, saveSessionCookies } from '../session'
 
 // Hạn tối đa cho 1 lần đăng. Lệnh gọi mạng (FB token/upload, Playwright X) nếu treo
 // lúc mạng chập chờn sẽ chiếm slot concurrency:1 vĩnh viễn (job vẫn await → lock vẫn
@@ -23,14 +23,18 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 async function handleFacebookPost(
   content: string,
   photos: PhotoInput[],
-  session: SessionData
+  session: SessionData,
+  accountId: string
 ): Promise<AutomationResult> {
   // DOM automation bằng browser thật thay cho HTTP replay: tận dụng cookie i_user để
   // đăng dưới danh nghĩa Page, giữ phiên trong browser thật → bền hơn, tránh FB hủy
   // phiên do nghi automation (lỗi 1357001 "Chưa đăng nhập").
+  // onCookies: lưu lại cookie FB vừa xoay vòng → phiên sống lâu hơn, đỡ phải re-export.
   return postToFacebookViaDOM(session.cookies, session.userAgent, {
     text: content,
     photos,
+  }, {
+    onCookies: (cookies) => saveSessionCookies(accountId, cookies),
   })
 }
 
@@ -85,7 +89,7 @@ async function handlePostJob(data: PostJobData): Promise<void> {
   switch (account.platform) {
     case 'facebook':
       result = await withTimeout(
-        handleFacebookPost(content, photos, session),
+        handleFacebookPost(content, photos, session, accountId),
         POST_TIMEOUT_MS,
         'Facebook post'
       )

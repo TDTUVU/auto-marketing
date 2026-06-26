@@ -3,7 +3,7 @@ import { connectDB } from './db/index'
 import { Account } from './db/schema'
 import { decrypt, encrypt } from './crypto'
 import { DEFAULT_USER_AGENT } from '@automation/core'
-import type { SessionData, SessionTokens } from '@automation/core'
+import type { CookieData, SessionData, SessionTokens } from '@automation/core'
 
 export async function loadSessionForAccount(accountId: string): Promise<SessionData | null> {
   await connectDB()
@@ -31,6 +31,34 @@ export async function loadSessionForAccount(accountId: string): Promise<SessionD
   }
 
   return null
+}
+
+// Lưu lại cookie MỚI (FB/X xoay vòng xs/auth_token sau mỗi lần dùng) về DB, thay cho việc
+// cứ replay bản cookie đông lạnh từ lúc export → phiên sống lâu hơn, đỡ phải re-export.
+// Guard: chỉ ghi khi phiên còn hợp lệ (có cặp auth cookie) và khi token đã thực sự đổi —
+// tránh ghi đè DB bằng phiên đã chết và tránh write thừa mỗi lần poll comment.
+export async function saveSessionCookies(accountId: string, cookies: CookieData[]): Promise<void> {
+  const get = (n: string) => cookies.find((c) => c.name === n)?.value
+  const looksValid =
+    (get('c_user') && get('xs')) || (get('auth_token') && get('ct0'))
+  if (!looksValid) return
+
+  await connectDB()
+  const account = await Account.findById(accountId)
+  if (!account?.encryptedSession) return
+
+  const session = JSON.parse(decrypt(account.encryptedSession)) as SessionData
+  const prev = session.cookies ?? []
+  const prevAuth =
+    prev.find((c) => c.name === 'xs')?.value ?? prev.find((c) => c.name === 'auth_token')?.value
+  const newAuth = get('xs') ?? get('auth_token')
+  if (prevAuth && newAuth && prevAuth === newAuth && prev.length === cookies.length) return
+
+  session.cookies = cookies
+  session.lastRefreshed = new Date()
+  account.encryptedSession = encrypt(JSON.stringify(session))
+  await account.save()
+  console.log(`[Session] Đã cập nhật cookie xoay vòng cho account ${accountId}`)
 }
 
 export async function updateSessionTokens(accountId: string, tokens: SessionTokens): Promise<void> {

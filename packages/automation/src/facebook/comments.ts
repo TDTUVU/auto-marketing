@@ -1,5 +1,7 @@
 import { chromium } from 'playwright'
+import type { BrowserContext } from 'playwright'
 import type { CookieData, SessionData } from '../types.js'
+import { persistCookies, type CookieSink } from './session.js'
 
 export interface CommentData {
   feedbackId: string
@@ -211,7 +213,8 @@ function cookiesToPlaywright(cookies: CookieData[]) {
 
 export async function fetchPostComments(
   session: SessionData,
-  postUrl: string
+  postUrl: string,
+  opts: { onCookies?: CookieSink } = {}
 ): Promise<CommentData[]> {
   const url = normalizePostUrl(postUrl)
   console.log(`[fetchPostComments] navigating to: ${url}`)
@@ -221,7 +224,7 @@ export async function fetchPostComments(
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
   })
 
-  const context = await browser.newContext({
+  const context: BrowserContext = await browser.newContext({
     userAgent: session.userAgent,
     extraHTTPHeaders: { 'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8' },
   })
@@ -287,6 +290,7 @@ export async function fetchPostComments(
 
     console.log(`[fetchPostComments] ${url} — ${graphqlCount} GraphQL, ${found.size} comments total`)
   } finally {
+    await persistCookies(context, opts.onCookies)
     await browser.close()
   }
 

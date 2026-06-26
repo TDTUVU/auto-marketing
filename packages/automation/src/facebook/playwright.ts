@@ -1,9 +1,10 @@
 import { chromium } from 'playwright'
-import type { Locator } from 'playwright'
+import type { BrowserContext, Locator, Page } from 'playwright'
 import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { AutomationResult, CookieData, PostPayload } from '../types.js'
+import { persistCookies, type CookieSink } from './session.js'
 
 // Mặc định headless. Đặt FACEBOOK_HEADLESS=false để chạy browser thật có giao diện
 // khi cần debug selector (FB hay đổi DOM + phụ thuộc locale tiếng Việt).
@@ -79,6 +80,58 @@ function extractPostUrlFromJson(json: Record<string, unknown>, pageId?: string):
   return undefined
 }
 
+// Sinh vài "needle" để nhận diện bài VỪA đăng: dùng để khớp nội dung trong response
+// GraphQL (đảm bảo đúng bài của mình, không phải bài cũ trong feed) và để verify trên DOM.
+// Bỏ ký tự đầu không phải chữ/số (vd emoji) để lấy đoạn ổn định.
+function buildTextNeedles(text: string): string[] {
+  const norm = text.replace(/\s+/g, ' ').trim()
+  const out = new Set<string>()
+  const m = norm.match(/[\p{L}\p{N}][\p{L}\p{N} ]{9,40}/u)
+  if (m) out.add(m[0].trim())
+  const head = norm.slice(0, 40).trim()
+  if (head.length >= 8) out.add(head)
+  return [...out].filter((n) => n.length >= 8)
+}
+
+// FB (Page) đôi khi bật popup gợi ý SAU khi bấm Đăng (vd "Thêm nút Gọi ngay" /
+// "Trò chuyện trực tiếp với mọi người"). Popup này CHẶN việc commit bài — phải đóng
+// (bấm "Lúc khác"/"Để sau"...) thì bài mới thực sự lên. Lúc có lúc không → chỉ đóng nếu
+// xuất hiện, không có thì im lặng bỏ qua.
+async function dismissPostUpsell(page: Page): Promise<void> {
+  try {
+    const btn = page
+      .locator('[role="dialog"] [role="button"]:visible, [role="dialog"] [aria-label]:visible')
+      .filter({ hasText: /^Lúc khác$|^Để sau$|^Bỏ qua$|^Không phải bây giờ$|^Đóng$|^Maybe later$|^Not now$|^Skip$|^Close$/i })
+      .first()
+    const appeared = await btn.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    if (appeared) {
+      console.log('[Facebook:DOM] đóng popup gợi ý sau đăng ("Lúc khác"...)')
+      await btn.click({ timeout: 6000 }).catch(() => null)
+      await randomDelay(1500, 2500)
+    }
+  } catch { /* không có popup → bỏ qua */ }
+}
+
+// Ground-truth: reload Trang và tìm nội dung vừa đăng. Dùng khi không bắt được post_id
+// để tránh báo "thành công giả".
+async function verifyPostOnPage(page: Page, navUrl: string, needles: string[]): Promise<boolean> {
+  if (needles.length === 0) return false
+  try {
+    await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await randomDelay(3000, 5000)
+    await page.evaluate('window.scrollBy(0, 300)').catch(() => null)
+    await randomDelay(1500, 2500)
+    for (const n of needles) {
+      const plain = n.slice(0, 30)
+      const count = await page.getByText(plain, { exact: false }).count().catch(() => 0)
+      if (count > 0) return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 /**
  * Đăng bài lên Facebook bằng browser thật (Playwright DOM) — thay cho HTTP replay.
  *
@@ -90,7 +143,7 @@ export async function postToFacebookViaDOM(
   cookies: CookieData[],
   userAgent: string,
   payload: PostPayload,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; onCookies?: CookieSink } = {}
 ): Promise<AutomationResult> {
   // i_user = ID hồ sơ Page đang acting-as; fallback c_user (đăng tường cá nhân).
   const pageId = getCookie(cookies, 'i_user') ?? getCookie(cookies, 'c_user')
@@ -100,9 +153,10 @@ export async function postToFacebookViaDOM(
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
   })
   let tmpDir: string | undefined
+  let context: BrowserContext | undefined
 
   try {
-    const context = await browser.newContext({
+    context = await browser.newContext({
       userAgent,
       locale: 'vi-VN',
       viewport: { width: 1366, height: 768 },
@@ -111,9 +165,16 @@ export async function postToFacebookViaDOM(
     await context.addCookies(cookiesToPlaywright(cookies))
     const page = await context.newPage()
 
-    // Bắt URL bài từ response GraphQL của lệnh tạo bài.
+    // Bắt URL bài MỚI từ response GraphQL của lệnh tạo bài. CHỈ bắt sau khi đã bấm "Đăng"
+    // (postingStarted) để KHÔNG dính URL của bài cũ đang nằm trong feed lúc tải trang.
+    // Ưu tiên (và khoá) response chứa đúng nội dung vừa đăng → chắc chắn đúng bài của mình.
     let capturedUrl: string | undefined
+    let capturedLocked = false
+    let postingStarted = false
+    const textNeedles = buildTextNeedles(payload.text)
+    const escNeedles = textNeedles.map((n) => JSON.stringify(n).slice(1, -1))
     page.on('response', (res) => {
+      if (!postingStarted || capturedLocked) return
       if (!res.url().includes('facebook.com/api/graphql')) return
       res.text().then((raw) => {
         const cleaned = raw.startsWith('for (;;);') ? raw.slice(9) : raw
@@ -123,7 +184,15 @@ export async function postToFacebookViaDOM(
           try {
             const j = JSON.parse(t) as Record<string, unknown>
             const u = extractPostUrlFromJson(j, pageId)
-            if (u) capturedUrl = u
+            if (!u) continue
+            // Chunk chứa đúng nội dung bài → chắc chắn bài của mình → khoá lại.
+            if (textNeedles.some((n) => t.includes(n)) || escNeedles.some((n) => t.includes(n))) {
+              capturedUrl = u
+              capturedLocked = true
+              return
+            }
+            // Chưa khớp nội dung: tạm giữ (best-effort), để response khớp sau ghi đè.
+            if (!capturedUrl) capturedUrl = u
           } catch { /* không phải JSON bài đăng — bỏ qua */ }
         }
       }).catch(() => { /* ignore */ })
@@ -210,28 +279,36 @@ export async function postToFacebookViaDOM(
       return { success: true, timestamp: new Date() }
     }
 
+    postingStarted = true // từ đây mới bắt URL bài (bỏ qua bài cũ trong feed lúc load)
     await postButton.click({ timeout: 15_000 })
-
-    // Composer đóng = dấu hiệu đăng thành công
-    await dialog.waitFor({ state: 'detached', timeout: 30_000 }).catch(() => null)
     await randomDelay(2500, 4000)
 
-    const stillOpen = await editor.isVisible().catch(() => false)
-    if (stillOpen && !capturedUrl) {
-      return {
-        success: false,
-        error: 'Composer chưa đóng sau khi bấm Đăng — FB có thể đã chặn (challenge/giới hạn)',
-        timestamp: new Date(),
-      }
-    }
+    // Đóng popup gợi ý sau đăng nếu FB bật (chặn commit bài). Lúc có lúc không.
+    await dismissPostUpsell(page)
+    await randomDelay(1500, 2500)
 
-    const result: AutomationResult = { success: true, timestamp: new Date() }
-    if (capturedUrl) result.postUrl = capturedUrl
-    return result
+    // Xác nhận THẬT (không còn coi "composer đóng" là thành công):
+    //  1) Bắt được post_id mới từ response tạo bài → chắc chắn đã đăng.
+    //  2) Nếu chưa, reload Trang tìm đúng nội dung vừa đăng (ground-truth).
+    if (capturedUrl) {
+      return { success: true, postUrl: capturedUrl, timestamp: new Date() }
+    }
+    const verified = await verifyPostOnPage(page, navUrl, textNeedles)
+    if (verified) {
+      return capturedUrl
+        ? { success: true, postUrl: capturedUrl, timestamp: new Date() }
+        : { success: true, timestamp: new Date() }
+    }
+    return {
+      success: false,
+      error: 'Không xác nhận được bài sau khi bấm Đăng (không có post_id mới và không thấy bài trên Trang) — FB có thể đã chặn hoặc đổi luồng đăng',
+      timestamp: new Date(),
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { success: false, error: `Facebook DOM post failed: ${msg}`, timestamp: new Date() }
   } finally {
+    if (context) await persistCookies(context, opts.onCookies)
     await browser.close()
     if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }
@@ -265,15 +342,16 @@ export async function replyToCommentViaDOM(
   postUrl: string,
   commentText: string,
   replyText: string,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; onCookies?: CookieSink } = {}
 ): Promise<AutomationResult> {
   const browser = await chromium.launch({
     headless: HEADLESS,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
   })
+  let context: BrowserContext | undefined
 
   try {
-    const context = await browser.newContext({
+    context = await browser.newContext({
       userAgent,
       locale: 'vi-VN',
       viewport: { width: 1366, height: 768 },
@@ -358,6 +436,7 @@ export async function replyToCommentViaDOM(
     const msg = err instanceof Error ? err.message : String(err)
     return { success: false, error: `Facebook DOM reply failed: ${msg}`, timestamp: new Date() }
   } finally {
+    if (context) await persistCookies(context, opts.onCookies)
     await browser.close()
   }
 }
