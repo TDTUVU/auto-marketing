@@ -110,6 +110,9 @@ async function handlePostJob(data: PostJobData): Promise<void> {
       status: 'published',
       publishedAt: result.timestamp,
       platformPostId: result.postUrl || result.postId || '',
+      // Xoá lỗi của lần thử trước (vd lần 1 false-fail rồi retry thành công) — nếu không
+      // record vẫn dính errorMessage cũ và dashboard hiện đỏ dù bài đã lên.
+      errorMessage: '',
     })
   } else {
     await Post.findByIdAndUpdate(postId, {

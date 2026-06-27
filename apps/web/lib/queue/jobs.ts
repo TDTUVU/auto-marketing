@@ -83,7 +83,10 @@ export function createCommentWorker(
 
 // BullMQ 5: dùng Job Scheduler (id ổn định) thay cho repeatable cũ — repeatable cũ
 // trả .id=undefined + .key=hash nên không map ngược về postId để dedup/remove/track được.
-const COMMENT_POLL_EVERY = 5 * 60 * 1000
+// Mỗi lần poll mở loạt Playwright navigation; track nhiều bài cùng lúc → poll dày làm
+// cạn ephemeral port trên Windows (net::ERR_ADDRESS_IN_USE) và khiến worker restart.
+// 15 phút là đủ kịp thời cho auto-reply mà giảm ~3x tần suất điều hướng. Chỉnh qua env.
+const COMMENT_POLL_EVERY = Number(process.env['COMMENT_POLL_EVERY_MS'] ?? 15 * 60 * 1000)
 const schedulerId = (postId: string) => `comment-poll-${postId}`
 
 export async function scheduleCommentPoll(data: CommentJobData): Promise<string> {

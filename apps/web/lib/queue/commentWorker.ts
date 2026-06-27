@@ -1,6 +1,6 @@
 import { connectDB } from '../db/index'
 import { Account, Post, Comment, Product, AutoPilotConfig, AutomationLog } from '../db/schema'
-import { createCommentWorker, type CommentJobData } from './jobs'
+import { createCommentWorker, removeCommentPoll, type CommentJobData } from './jobs'
 import { fetchPostComments, replyToCommentViaDOM } from '@automation/core'
 import { replyToTweetViaDOM, fetchTweetRepliesViaDOM, extractTwitterUserId } from '@automation/core'
 import type { SessionData } from '@automation/core'
@@ -199,8 +199,22 @@ async function handleCommentJob(data: CommentJobData): Promise<void> {
 
   await connectDB()
 
+  // Tự dọn scheduler mồ côi: nếu post hoặc account đã bị xoá (hoặc auto-reply đã tắt),
+  // job này sẽ fail mỗi vòng poll mãi mãi và phí điều hướng Playwright (góp phần cạn
+  // port ERR_ADDRESS_IN_USE). Gỡ scheduler rồi dừng êm thay vì throw để khỏi tốn retry.
+  const post = await Post.findById(postId).select('autoReplyEnabled').lean()
+  if (!post || post.autoReplyEnabled === false) {
+    await removeCommentPoll(postId)
+    console.log(`[CommentWorker] gỡ scheduler mồ côi (post đã xoá/tắt auto-reply): ${postId}`)
+    return
+  }
+
   const account = await Account.findById(accountId)
-  if (!account) throw new Error(`Account not found: ${accountId}`)
+  if (!account) {
+    await removeCommentPoll(postId)
+    console.log(`[CommentWorker] gỡ scheduler mồ côi (account đã xoá ${accountId}): ${postId}`)
+    return
+  }
 
   const config = await AutoPilotConfig.findOne({ accountId }).lean()
   const replyTone = config?.replyTone ?? 'friendly'

@@ -116,20 +116,28 @@ async function dismissPostUpsell(page: Page): Promise<void> {
 // để tránh báo "thành công giả".
 async function verifyPostOnPage(page: Page, navUrl: string, needles: string[]): Promise<boolean> {
   if (needles.length === 0) return false
-  try {
-    await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    await randomDelay(3000, 5000)
-    await page.evaluate('window.scrollBy(0, 300)').catch(() => null)
-    await randomDelay(1500, 2500)
-    for (const n of needles) {
-      const plain = n.slice(0, 30)
-      const count = await page.getByText(plain, { exact: false }).count().catch(() => 0)
-      if (count > 0) return true
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+  const wanted = needles.map(norm).filter((n) => n.length >= 8)
+  if (wanted.length === 0) return false
+  // Reload có retry: NGAY sau khi đăng, FB hay nghẽn (ERR_ADDRESS_IN_USE/timeout) làm lần
+  // goto đầu fail → đừng vội kết luận "không thấy bài". So khớp bằng innerText đã chuẩn hóa
+  // (FB tách caption qua nhiều span nên getByG/getByText trên chuỗi dài dễ trượt).
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => null)
+      await randomDelay(2500, 4000)
+      await page.evaluate('window.scrollBy(0, 400)').catch(() => null)
+      await randomDelay(1500, 2500)
+      const raw = (await page.evaluate('document.body.innerText').catch(() => '')) as string
+      const body = norm(raw || '')
+      if (body && wanted.some((n) => body.includes(n))) return true
+    } catch {
+      /* goto/đọc DOM lỗi do mạng nghẽn → thử lại */
     }
-    return false
-  } catch {
-    return false
+    if (attempt < 3) await randomDelay(2000, 4000)
   }
+  return false
 }
 
 /**
@@ -288,16 +296,22 @@ export async function postToFacebookViaDOM(
     await randomDelay(1500, 2500)
 
     // Xác nhận THẬT (không còn coi "composer đóng" là thành công):
-    //  1) Bắt được post_id mới từ response tạo bài → chắc chắn đã đăng.
-    //  2) Nếu chưa, reload Trang tìm đúng nội dung vừa đăng (ground-truth).
+    //  1) Bắt được post_id mới từ response tạo bài → chắc chắn đã đăng. Response tạo bài
+    //     có thể về chậm vài giây → POLL tới 20s thay vì check 1 lần (trước đây chính vì
+    //     check 1 lần quá sớm nên lần đầu hay "fail" rồi mới đậu ở lần retry). Ưu tiên URL
+    //     đã khớp nội dung (capturedLocked); chưa khớp thì chờ hết hạn rồi mới dùng best-effort.
+    const captureDeadline = Date.now() + 20_000
+    while (Date.now() < captureDeadline) {
+      if (capturedLocked && capturedUrl) break
+      await randomDelay(700, 1100)
+    }
     if (capturedUrl) {
       return { success: true, postUrl: capturedUrl, timestamp: new Date() }
     }
+    //  2) Nếu chưa, reload Trang tìm đúng nội dung vừa đăng (ground-truth, có retry).
     const verified = await verifyPostOnPage(page, navUrl, textNeedles)
     if (verified) {
-      return capturedUrl
-        ? { success: true, postUrl: capturedUrl, timestamp: new Date() }
-        : { success: true, timestamp: new Date() }
+      return { success: true, timestamp: new Date() }
     }
     return {
       success: false,
