@@ -13,6 +13,8 @@
     "test": "pnpm --filter web test",
     "test:post": "tsx scripts/test_post.ts",
     "test:metrics": "pnpm --filter @automation/core build && tsx --env-file=.env apps/web/test-metrics.ts",
+    "cleanup:logs": "tsx --env-file=.env apps/web/scripts/cleanup-reply-failed-logs.ts",
+    "dedupe:posts": "tsx --env-file=.env apps/web/scripts/dedupe-posts.ts",
     "worker": "pnpm --filter @automation/core build && tsx --env-file=.env apps/web/worker.ts"
   },
   "devDependencies": {

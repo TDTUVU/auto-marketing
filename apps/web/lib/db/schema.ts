@@ -119,6 +119,10 @@ export interface IComment extends Document {
   text: string
   repliedAt?: Date
   replyText?: string
+  // Đánh dấu comment đã xử lý nhưng KHÔNG reply (emoji-only / LLM quyết định skip).
+  // Có giá trị này → không poll/đánh giá lại mỗi vòng (tránh spam log + tốn LLM).
+  skippedAt?: Date
+  skipReason?: string
   createdAt: Date
 }
 
@@ -131,6 +135,8 @@ const CommentSchema = new Schema<IComment>(
     text: { type: String, required: true },
     repliedAt: Date,
     replyText: String,
+    skippedAt: Date,
+    skipReason: String,
   },
   { timestamps: true }
 )

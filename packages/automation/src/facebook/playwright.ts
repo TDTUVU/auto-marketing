@@ -15,6 +15,20 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// FB render emoji (cờ, mặt cười…) thành <img>, KHÔNG nằm trong textContent. Nếu để emoji
+// trong chuỗi tìm comment (hasText), substring match sẽ trượt → không định vị được comment
+// có cả chữ lẫn emoji. Bỏ emoji + gộp khoảng trắng để snippet chỉ còn phần chữ thật sự
+// hiện trong DOM (img rỗng làm hai đoạn text liền nhau sau khi normalize whitespace).
+function stripEmoji(s: string): string {
+  return (s ?? '')
+    .replace(
+      /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}\u{20E3}]/gu,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // Cùng cách inject cookie đã chứng minh chạy được ở comments.ts (đọc comment FB).
 function cookiesToPlaywright(cookies: CookieData[]) {
   return cookies.map((c) => ({
@@ -390,7 +404,10 @@ export async function replyToCommentViaDOM(
 
     // FB render mỗi comment 2 bản (1 visible + 1 ẩn) → BẮT BUỘC lấy bản :visible.
     // waitFor tự retry query liên tục (chống flaky load trễ) mà không overshoot scroll.
-    const snippet = commentText.trim().slice(0, 50)
+    // Khớp theo phần chữ (bỏ emoji) vì emoji là <img> không có trong textContent.
+    // Nếu bỏ hết còn rỗng (comment emoji-only) thì fallback về text gốc — best effort.
+    const textOnly = stripEmoji(commentText)
+    const snippet = (textOnly || commentText.trim()).slice(0, 50)
     const commentNode = page.locator('div[role="article"]:visible').filter({ hasText: snippet }).first()
     try {
       await commentNode.waitFor({ state: 'visible', timeout: 25_000 })

@@ -19,6 +19,14 @@ function normalizeText(s: string): string {
   return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
+// Comment chỉ chứa emoji/ký hiệu (không có chữ hay số) — vd lá cờ "🇵🇹".
+// FB render emoji thành <img alt="…"> nên DOM reply định vị theo text (hasText) sẽ
+// KHÔNG khớp → "Reply failed" lặp vô hạn. Những comment này cũng chẳng có nội dung
+// đáng reply, nên ta skip thẳng (không gọi LLM, không mở Playwright).
+function hasMeaningfulText(s: string): boolean {
+  return /[\p{L}\p{N}]/u.test(s ?? '')
+}
+
 async function handleFacebookComments(
   data: CommentJobData,
   account: InstanceType<typeof Account>,
@@ -105,10 +113,16 @@ async function processReplies(
 ): Promise<{ replied: number; skipped: number }> {
   const { postId, postContent } = data
 
-  const repliedDocs = await Comment.find({ postId, repliedAt: { $exists: true } })
-    .select('facebookCommentId replyText')
+  // Comment đã xử lý xong = đã reply (repliedAt) HOẶC đã chủ động bỏ qua (skippedAt).
+  // Cả hai đều không cần đánh giá lại mỗi vòng poll.
+  const handledDocs = await Comment.find({
+    postId,
+    $or: [{ repliedAt: { $exists: true } }, { skippedAt: { $exists: true } }],
+  })
+    .select('facebookCommentId replyText repliedAt')
     .lean()
-  const existingReplied = new Set(repliedDocs.map((c) => c.facebookCommentId))
+  const existingHandled = new Set(handledDocs.map((c) => c.facebookCommentId))
+  const repliedDocs = handledDocs.filter((c) => c.repliedAt)
 
   // Reply của CHÍNH Page bị FB render thành "comment" mới (kèm @tên người được nhắc) →
   // poll sau bắt lại → bot tự trả lời chính mình (loop) hoặc fail liên tục. FB không trả
@@ -126,8 +140,15 @@ async function processReplies(
   let replied = 0
   let skipped = 0
 
+  // Đánh dấu comment đã xử lý nhưng không reply → lần poll sau bỏ qua luôn.
+  const persistSkip = (commentId: string, reason: string) =>
+    Comment.findOneAndUpdate(
+      { facebookCommentId: commentId },
+      { skippedAt: new Date(), skipReason: reason }
+    )
+
   for (const comment of comments) {
-    if (existingReplied.has(comment.id)) continue
+    if (existingHandled.has(comment.id)) continue
     if (isOwnReply(comment.text)) {
       // Bỏ qua reply của chính Page — không tạo Comment row, không gọi LLM, không reply.
       continue
@@ -147,6 +168,20 @@ async function processReplies(
       { upsert: true, new: true }
     )
 
+    // Emoji-only (vd "🇵🇹"): không thể định vị bằng DOM hasText → skip & persist.
+    if (!hasMeaningfulText(comment.text)) {
+      skipped++
+      await persistSkip(comment.id, 'emoji_only')
+      await AutomationLog.create({
+        postId,
+        action: 'reply_skipped',
+        success: true,
+        detail: `Skipped emoji-only ${comment.authorName}: "${comment.text.slice(0, 60)}"`,
+        timestamp: new Date(),
+      })
+      continue
+    }
+
     const replyResult = await generateCommentReply({
       shopName: account.name,
       postContent,
@@ -158,6 +193,7 @@ async function processReplies(
 
     if (replyResult.skip || !replyResult.reply) {
       skipped++
+      await persistSkip(comment.id, `llm:${replyResult.intent}`)
       await AutomationLog.create({
         postId,
         action: 'reply_skipped',

@@ -146,6 +146,8 @@ function deepFindComments(
 const FB_SUGGESTION_PREFIXES = [
   'có thể bạn sẽ thích',
   'gợi ý cho bạn',
+  'đề xuất dành cho bạn',
+  'bạn có một gợi ý kết bạn',
   'trang bạn có thể thích',
   'nhóm bạn có thể thích',
   'những người bạn có thể biết',
@@ -164,15 +166,21 @@ const FB_SUGGESTION_PREFIXES = [
 const FB_NOTIFICATION_PATTERNS = [
   'đã bình luận về bài viết',
   'đã bình luận về ảnh',
+  'cũng đã bình luận',
   'đã trả lời bình luận',
-  'đã thích bài viết của bạn',
+  'thích bài viết của bạn', // gồm cả "đã thích…" lẫn "X và Y thích bài viết của bạn"
   'đã thích bình luận',
   'thích ảnh của bạn',
+  'bày tỏ cảm xúc về',
   'người theo dõi, thích',
+  'đã theo dõi bạn',
   'đã chia sẻ bài viết',
+  'đã thêm vào tin của',
   'commented on your',
   'liked your photo',
+  'liked your post',
   'replied to your comment',
+  'started following you',
 ]
 
 function isFacebookNoise(text: string): boolean {
@@ -276,16 +284,23 @@ export async function fetchPostComments(
       }
     } catch { /* no button */ }
 
-    // Extract comments from SSR HTML (inline script tags)
-    if (found.size === 0) {
+    // LUÔN trích thêm từ SSR HTML rồi merge — KHÔNG chỉ khi GraphQL rỗng.
+    // Lý do: GraphQL hay bắt nhầm "jewel thông báo" (vd "X thích bài viết của bạn")
+    // khiến found.size>0, nếu chỉ chạy SSR khi found rỗng thì comment KHÁCH thật (chỉ
+    // nằm trong SSR HTML) bị bỏ sót → không bao giờ được reply. Dedup theo feedbackId
+    // và theo text (FB nhúng 1 comment với nhiều feedbackId khác nhau).
+    {
       const html = await page.content()
       const htmlComments = extractCommentsFromHtml(html, session.userId)
+      const seenText = new Set(Array.from(found.values()).map((c) => c.text))
+      let added = 0
       for (const c of htmlComments) {
-        if (!found.has(c.feedbackId)) {
-          found.set(c.feedbackId, c)
-        }
+        if (found.has(c.feedbackId) || seenText.has(c.text)) continue
+        found.set(c.feedbackId, c)
+        seenText.add(c.text)
+        added++
       }
-      console.log(`[fetchPostComments] SSR extraction: ${htmlComments.length} comments from HTML`)
+      console.log(`[fetchPostComments] SSR extraction: ${htmlComments.length} từ HTML, thêm mới ${added}`)
     }
 
     console.log(`[fetchPostComments] ${url} — ${graphqlCount} GraphQL, ${found.size} comments total`)
