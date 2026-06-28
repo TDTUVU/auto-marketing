@@ -176,24 +176,28 @@ async function pickProduct(
   minIntervalDays: number,
   categories: string[]
 ): Promise<InstanceType<typeof Product> | null> {
+  // Filter nền: sản phẩm còn bật của account (+ lọc category nếu config có).
+  const base: Record<string, unknown> = { accountId, isActive: true }
+  if (categories.length > 0) {
+    base['category'] = { $in: categories }
+  }
+
+  // Bước 1 — ưu tiên: sản phẩm đã qua cooldown minIntervalDays (chưa đăng / đăng đã lâu).
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - minIntervalDays)
-
-  const filter: Record<string, unknown> = {
-    accountId,
-    isActive: true,
+  const fresh = await Product.findOne({
+    ...base,
     $or: [
       { lastPostedAt: { $exists: false } },
       { lastPostedAt: null },
       { lastPostedAt: { $lt: cutoff } },
     ],
-  }
+  }).sort({ lastPostedAt: 1, postCount: 1 })
+  if (fresh) return fresh
 
-  if (categories.length > 0) {
-    filter['category'] = { $in: categories }
-  }
-
-  return Product.findOne(filter).sort({ lastPostedAt: 1, postCount: 1 })
+  // Bước 2 — xoay vòng: hết sản phẩm "tươi" thì quay lại cái CŨ NHẤT (bỏ qua cooldown),
+  // thay vì bỏ trống slot. Sort lastPostedAt tăng dần (null trước) → tự luân phiên đều.
+  return Product.findOne(base).sort({ lastPostedAt: 1, postCount: 1 })
 }
 
 function endOfDay(d: Date): Date {
