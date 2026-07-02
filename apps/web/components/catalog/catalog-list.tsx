@@ -222,7 +222,7 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
                   className="size-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
                 />
               </label>
-              {product.imageUrls.length > 0 && (
+              {product.imageUrls.length > 0 ? (
                 <div className="flex gap-0.5 h-40 bg-zinc-100">
                   {product.imageUrls.slice(0, 3).map((img, i) => (
                     <img
@@ -232,6 +232,12 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
                       className="flex-1 object-cover min-w-0"
                     />
                   ))}
+                </div>
+              ) : (
+                // Không có ảnh: vẫn render vùng media (placeholder) để ô tích nổi phía trên,
+                // tránh đè lên tên sản phẩm và giữ chiều cao card đồng đều trong grid.
+                <div className="flex h-40 items-center justify-center bg-zinc-100">
+                  <Package className="size-10 text-zinc-300" />
                 </div>
               )}
               <div className="p-4">

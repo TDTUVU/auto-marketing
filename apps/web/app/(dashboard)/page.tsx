@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Music2, Megaphone, ArrowRight } from 'lucide-react'
 import { FacebookIcon, TwitterIcon, InstagramIcon } from '@/components/icons/brand-icons'
 import { connectDB } from '@/lib/db'
-import { Account, Post, Product } from '@/lib/db/schema'
+import { Account } from '@/lib/db/schema'
 import { platforms } from '@/lib/platforms'
 import { Badge } from '@/components/ui/badge'
 
@@ -21,9 +21,6 @@ export default async function PlatformHubPage() {
   const countMap: Record<string, number> = Object.fromEntries(
     accountCounts.map((a: { _id: string; count: number }) => [a._id, a.count])
   )
-
-  const totalPosts = await Post.countDocuments()
-  const totalProducts = await Product.countDocuments({ isActive: true })
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
@@ -58,13 +55,6 @@ export default async function PlatformHubPage() {
                       )}
                     </div>
                   </div>
-
-                  {platform.available && connected > 0 && (
-                    <div className="flex gap-4 text-xs text-zinc-500 pt-2 border-t border-zinc-100">
-                      <span>{totalPosts} bài đăng</span>
-                      <span>{totalProducts} sản phẩm</span>
-                    </div>
-                  )}
                 </div>
               </Link>
             )

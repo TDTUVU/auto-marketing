@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
-import { AutoPilotConfig, Account } from '@/lib/db/schema'
+import { AutoPilotConfig, Account, Product } from '@/lib/db/schema'
 
 export async function GET(request: Request) {
   await connectDB()
@@ -31,6 +31,18 @@ export async function POST(request: Request) {
     const account = await Account.findById(accountId)
     if (!account) {
       return NextResponse.json({ data: null, error: 'Account not found' }, { status: 404 })
+    }
+
+    // Bật auto-pilot mà chưa có sản phẩm active nào → worker sẽ skip im lặng (pickProduct null).
+    // Chặn + báo lại thay vì để user tưởng đã bật thành công.
+    if (body['enabled'] === true) {
+      const productCount = await Product.countDocuments({ accountId, isActive: true })
+      if (productCount === 0) {
+        return NextResponse.json(
+          { data: null, error: 'Tài khoản chưa có sản phẩm trong catalog — thêm sản phẩm trước khi bật auto-pilot' },
+          { status: 400 }
+        )
+      }
     }
 
     const config = await AutoPilotConfig.findOneAndUpdate(

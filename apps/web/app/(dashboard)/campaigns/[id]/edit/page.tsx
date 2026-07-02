@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { connectDB } from '@/lib/db'
-import { Account, Campaign } from '@/lib/db/schema'
+import { Account, Campaign, Product } from '@/lib/db/schema'
 import { CampaignForm, type AccountOption, type CampaignInitial } from '@/components/campaigns/campaign-form'
 
 export default async function EditCampaignPage({
@@ -29,6 +29,12 @@ export default async function EditCampaignPage({
     ageRange: a.ageRange,
     categories: a.categories ?? [],
   }))
+
+  // Số sản phẩm active mỗi tài khoản — để cảnh báo account chưa có catalog khi chọn vào chiến dịch.
+  const productCounts = await Promise.all(
+    accounts.map(async (a) => [a._id.toString(), await Product.countDocuments({ accountId: a._id, isActive: true })] as const)
+  )
+  const productCount = Object.fromEntries(productCounts)
 
   const initial: CampaignInitial = {
     _id: campaign._id.toString(),
@@ -55,7 +61,7 @@ export default async function EditCampaignPage({
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-xl p-6">
-        <CampaignForm accounts={options} campaign={initial} />
+        <CampaignForm accounts={options} campaign={initial} productCount={productCount} />
       </div>
     </div>
   )

@@ -51,9 +51,11 @@ function todayInput(): string {
 export function CampaignForm({
   accounts,
   campaign,
+  productCount = {},
 }: {
   accounts: AccountOption[]
   campaign?: CampaignInitial
+  productCount?: Record<string, number>
 }) {
   const router = useRouter()
   const isEdit = !!campaign
@@ -154,6 +156,12 @@ export function CampaignForm({
   const hasClassification = presentAges.length > 0 || presentCategories.length > 0
   const filteredIds = filteredAccounts.map((a) => a._id)
   const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => accountIds.includes(id))
+
+  // Tài khoản đã chọn nhưng CHƯA có sản phẩm trong catalog → autopilot không đăng được bài
+  // cho chúng (pickProduct trả null). Cảnh báo để user thêm sản phẩm trước khi chạy chiến dịch.
+  const emptyCatalogSelected = accountIds
+    .filter((id) => (productCount[id] ?? 0) === 0)
+    .map((id) => accounts.find((a) => a._id === id)?.name ?? id)
 
   function toggleAllFiltered() {
     if (allFilteredSelected) {
@@ -296,7 +304,12 @@ export function CampaignForm({
                             className="size-4 shrink-0"
                           />
                           <span className="truncate">{a.name}</span>
-                          <span className="flex flex-wrap gap-1 ml-auto shrink-0">
+                          <span className="flex flex-wrap items-center gap-1 ml-auto shrink-0">
+                            {(productCount[a._id] ?? 0) === 0 && (
+                              <span className="text-[10px] font-medium text-amber-600 whitespace-nowrap">
+                                Chưa có SP
+                              </span>
+                            )}
                             {a.ageRange && <Badge variant="scheduled">{ageRangeLabel(a.ageRange)}</Badge>}
                             {(a.categories ?? []).map((c) => (
                               <Badge key={c}>{c}</Badge>
@@ -327,6 +340,14 @@ export function CampaignForm({
           Bài do autopilot đăng trong chiến dịch sẽ tự động reply comment (dùng catalog của tài khoản).
         </p>
       </div>
+
+      {emptyCatalogSelected.length > 0 && (
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          ⚠️ {emptyCatalogSelected.length} tài khoản chưa có sản phẩm trong catalog:{' '}
+          <span className="font-medium">{emptyCatalogSelected.join(', ')}</span>. Autopilot sẽ
+          không đăng bài cho các tài khoản này — hãy thêm sản phẩm vào catalog trước khi chạy.
+        </p>
+      )}
 
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
 

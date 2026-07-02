@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm --filter web typecheck)"
+      "Bash(pnpm --filter web typecheck)",
+      "PowerShell(pm2 restart *)",
+      "Bash(ENVFILE=\"C:/Users/DELL INSPIRON 5425/Desktop/DA/marketing-automation/.env\" node verify_selfreply.mjs)",
+      "Bash(rm -f verify_selfreply.mjs)"
     ]
   }
 }

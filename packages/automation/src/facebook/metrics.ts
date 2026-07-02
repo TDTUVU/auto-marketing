@@ -197,6 +197,57 @@ function cookiesToPlaywright(cookies: CookieData[]) {
   }))
 }
 
+/**
+ * Trích số comment của BÀI CHÍNH trên trang permalink.
+ *
+ * FB KHÔNG để số comment cùng object với reaction_count (object reaction chỉ có cờ
+ * quyền if_viewer_can_comment_anonymously). Số thật nằm ở comment_list_renderer của
+ * bài chính — nhận diện bằng __typename "XFBCommentListRendererForCommentsAPIPermalink"
+ * (mỗi trang permalink chỉ có 1, phân biệt với UFICommentActionRenderer của bài liên quan):
+ *   …"XFBCommentListRendererForCommentsAPIPermalink","feedback":{"comment_rendering_instance":{"comments":{"total_count":N}}}
+ * Chuỗi này nằm trong payload Relay stream (JSON escape) nên extractSsrJsonBlobs bỏ sót →
+ * đọc bằng regex trên HTML thô. Regex chịu được cả bản escape (\") lẫn không escape.
+ */
+function extractPermalinkCommentCount(html: string): number | undefined {
+  const m = html.match(
+    /XFBCommentListRendererForCommentsAPIPermalink[\s\S]{0,400}?total_count\\?"\s*:\s*(\d+)/
+  )
+  if (!m?.[1]) return undefined
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : undefined
+}
+
+/** Feedback id (base64) của bài chính: suy từ subscription_target_id đứng ngay trước
+ *  comment_list_renderer permalink. id = base64("feedback:<postId>"). */
+function focalFeedbackId(html: string): string | undefined {
+  const m = html.match(
+    /subscription_target_id\\?"\s*:\s*\\?"(\d+)\\?"[\s\S]{0,200}?XFBCommentListRendererForCommentsAPIPermalink/
+  )
+  if (!m?.[1]) return undefined
+  return Buffer.from(`feedback:${m[1]}`).toString('base64').replace(/=+$/, '')
+}
+
+/**
+ * Trích số share của BÀI CHÍNH trên trang permalink.
+ *
+ * Giống comment, số share KHÔNG nằm ở object reaction focal. Nó ở renderer riêng:
+ *   {"__typename":"XFBUFIAdaptiveShareActionRenderer","feedback":{"id":"<FB_ID>",…,"share_count":{"count":N}}}
+ * Trang có nhiều post (bài liên quan) mỗi cái 1 share renderer → phải gắn theo ĐÚNG
+ * feedback id của bài focal, không lấy bừa cái đầu. Đọc regex trên HTML thô (payload escape).
+ */
+function extractPermalinkShareCount(html: string): number | undefined {
+  const fbId = focalFeedbackId(html)
+  if (!fbId) return undefined
+  const idPat = fbId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(
+    `XFBUFIAdaptiveShareActionRenderer[\\s\\S]{0,80}?${idPat}[\\s\\S]{0,200}?share_count\\\\?"\\s*:\\s*\\{\\\\?"count\\\\?"\\s*:\\s*(\\d+)`
+  )
+  const m = html.match(re)
+  if (!m?.[1]) return undefined
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : undefined
+}
+
 /** Tách các blob JSON nhúng SSR (<script type="application/json">…</script>). */
 function extractSsrJsonBlobs(html: string): string[] {
   const blobs: string[] = []
@@ -239,6 +290,8 @@ export async function fetchFacebookMetrics(
   const candidates: FeedbackCandidate[] = []
   let graphqlCount = 0
   let needle = ''
+  let permalinkCommentCount: number | undefined // số comment bài chính (đọc từ comment_list_renderer)
+  let permalinkShareCount: number | undefined // số share bài chính (đọc từ share action renderer)
 
   // Lớp 1 — intercept GraphQL responses
   page.on('response', (response) => {
@@ -270,9 +323,11 @@ export async function fetchFacebookMetrics(
       await page.waitForTimeout(2000)
     }
 
-    // Lớp 2 — quét JSON nhúng SSR
+    // Luôn lấy HTML sau khi feed đã hydrate — dùng cho: (a) SSR fallback khi GraphQL
+    // không có candidate reaction, (b) trích số comment bài chính (FB để total_count
+    // trong payload stream, KHÔNG cùng object reaction → phải đọc từ HTML thô).
+    const html = await page.content()
     if (candidates.length === 0) {
-      const html = await page.content()
       for (const blob of extractSsrJsonBlobs(html)) {
         try {
           collectFeedback(JSON.parse(blob), candidates)
@@ -280,6 +335,8 @@ export async function fetchFacebookMetrics(
       }
       console.log(`[Facebook:metrics] SSR scan — ${candidates.length} feedback candidate(s)`)
     }
+    permalinkCommentCount = extractPermalinkCommentCount(html)
+    permalinkShareCount = extractPermalinkShareCount(html)
 
     console.log(`[Facebook:metrics] ${graphqlCount} GraphQL responses, ${candidates.length} candidate(s)`)
   } finally {
@@ -291,6 +348,32 @@ export async function fetchFacebookMetrics(
     throw new Error(
       `Không lấy được metrics cho bài ${url} (graphql:${graphqlCount}) — có thể bị xóa, private, hoặc session hết hạn`
     )
+  }
+
+  // Số comment: ưu tiên count từ comment_list_renderer bài chính (nguồn đáng tin trên
+  // permalink). Feedback object reaction không mang số comment nên focal.comments thường 0.
+  if (permalinkCommentCount != null) {
+    if (permalinkCommentCount !== focal.comments) {
+      console.log(
+        `[Facebook:metrics] comment: ${focal.comments} (feedback obj) → ${permalinkCommentCount} (permalink renderer)`
+      )
+    }
+    focal.comments = permalinkCommentCount
+  } else {
+    console.log('[Facebook:metrics] không thấy comment_list_renderer permalink — giữ comment từ feedback object')
+  }
+
+  // Số share: cùng lý do như comment — lấy từ share action renderer của bài focal
+  // (gắn theo feedback id), vì object reaction thường không mang share_count.
+  if (permalinkShareCount != null) {
+    if (permalinkShareCount !== focal.shares) {
+      console.log(
+        `[Facebook:metrics] share: ${focal.shares} (feedback obj) → ${permalinkShareCount} (share renderer)`
+      )
+    }
+    focal.shares = permalinkShareCount
+  } else {
+    console.log('[Facebook:metrics] không thấy share renderer bài focal — giữ share từ feedback object')
   }
 
   const m: PostMetrics = { likes: focal.likes, comments: focal.comments, shares: focal.shares }

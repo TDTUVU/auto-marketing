@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { connectDB } from '@/lib/db'
-import { Account } from '@/lib/db/schema'
+import { Account, Product } from '@/lib/db/schema'
 import { CampaignForm, type AccountOption } from '@/components/campaigns/campaign-form'
 
 export default async function NewCampaignPage() {
@@ -19,6 +19,12 @@ export default async function NewCampaignPage() {
     ageRange: a.ageRange,
     categories: a.categories ?? [],
   }))
+
+  // Số sản phẩm active mỗi tài khoản (giống trang autopilot) — để cảnh báo account chưa có catalog.
+  const productCounts = await Promise.all(
+    accounts.map(async (a) => [a._id.toString(), await Product.countDocuments({ accountId: a._id, isActive: true })] as const)
+  )
+  const productCount = Object.fromEntries(productCounts)
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -37,7 +43,7 @@ export default async function NewCampaignPage() {
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-xl p-6">
-        <CampaignForm accounts={options} />
+        <CampaignForm accounts={options} productCount={productCount} />
       </div>
     </div>
   )

@@ -248,8 +248,10 @@ export async function postToFacebookViaDOM(
     await composerOpener.waitFor({ state: 'visible', timeout: 30_000 })
     await composerOpener.click({ timeout: 15_000 })
 
-    // Modal composer
-    const dialog = page.locator('[role="dialog"]')
+    // Modal composer. FB render kèm dialog "Thông báo" (role="dialog" nhưng KHÔNG có
+    // aria-modal) → '[role="dialog"]' khớp 2 element gây strict mode violation. Composer
+    // soạn bài luôn có aria-modal="true" → scope theo đó để chọn đúng 1 dialog.
+    const dialog = page.locator('[role="dialog"][aria-modal="true"]').first()
     await dialog.waitFor({ state: 'visible', timeout: 30_000 })
 
     // Ô soạn nội dung (contenteditable trong modal)
