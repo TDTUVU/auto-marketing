@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
-import { Product, Account } from '@/lib/db/schema'
+import { Product, Account, Image } from '@/lib/db/schema'
 
 interface BulkProductInput {
   name: string
@@ -65,6 +65,43 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error('[/api/products/bulk] error:', err)
+    return NextResponse.json({ data: null, error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as { ids?: unknown }
+
+    if (!Array.isArray(body.ids) || body.ids.length === 0) {
+      return NextResponse.json(
+        { data: null, error: 'ids array is required' },
+        { status: 400 }
+      )
+    }
+
+    const ids = body.ids.filter((id): id is string => typeof id === 'string')
+    if (ids.length === 0) {
+      return NextResponse.json({ data: null, error: 'No valid ids' }, { status: 400 })
+    }
+
+    await connectDB()
+
+    const products = await Product.find({ _id: { $in: ids } }).select('imageUrls').lean()
+    const filenames = products.flatMap((p) => p.imageUrls)
+
+    const result = await Product.deleteMany({ _id: { $in: ids } })
+
+    if (filenames.length > 0) {
+      await Image.deleteMany({ filename: { $in: filenames } })
+    }
+
+    return NextResponse.json({
+      data: { count: result.deletedCount },
+      error: null,
+    })
+  } catch (err) {
+    console.error('[/api/products/bulk] DELETE error:', err)
     return NextResponse.json({ data: null, error: 'Internal server error' }, { status: 500 })
   }
 }

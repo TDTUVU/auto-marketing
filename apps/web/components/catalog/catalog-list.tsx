@@ -2,9 +2,12 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Search, Package, Pencil } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Search, Package, Pencil, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { DeleteProductBtn } from './delete-product-btn'
 import { ToggleActiveBtn } from './toggle-active-btn'
 
@@ -27,10 +30,15 @@ interface CatalogListProps {
 }
 
 export function CatalogList({ products, accountMap, categories, basePath = '/dashboard/facebook' }: CatalogListProps & { basePath?: string }) {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [accountFilter, setAccountFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
+
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirm, setConfirm] = useState<'selected' | 'all' | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const accountOptions = Object.entries(accountMap).sort((a, b) => a[1].localeCompare(b[1]))
 
@@ -43,6 +51,50 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
     if (activeFilter === 'inactive' && p.isActive) return false
     return true
   })
+
+  const filteredIds = filtered.map((p) => p._id)
+  const allVisibleSelected = filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) {
+        filteredIds.forEach((id) => next.delete(id))
+      } else {
+        filteredIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
+  }
+
+  async function deleteIds(ids: string[]) {
+    if (ids.length === 0) return
+    setDeleting(true)
+    try {
+      await fetch('/api/products/bulk', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      setSelected(new Set())
+      setConfirm(null)
+      router.refresh()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const confirmIds =
+    confirm === 'all' ? products.map((p) => p._id) : Array.from(selected)
 
   return (
     <div>
@@ -94,6 +146,42 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
         </select>
       </div>
 
+      {products.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <label className="flex items-center gap-2 text-sm text-zinc-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleAllVisible}
+              className="size-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+            />
+            Chọn tất cả
+          </label>
+          {selected.size > 0 && (
+            <span className="text-sm text-zinc-500">Đã chọn {selected.size}</span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={selected.size === 0}
+              onClick={() => setConfirm('selected')}
+            >
+              <Trash2 className="size-4" />
+              Xóa đã chọn{selected.size > 0 ? ` (${selected.size})` : ''}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setConfirm('all')}
+            >
+              Xóa toàn bộ
+            </Button>
+          </div>
+        </div>
+      )}
+
       {(search || accountFilter || categoryFilter || activeFilter !== 'all') && (
         <p className="text-xs text-zinc-400 mb-3">
           Hiển thị {filtered.length} / {products.length} sản phẩm
@@ -119,8 +207,21 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
           {filtered.map((product) => (
             <div
               key={product._id}
-              className="bg-white border border-zinc-200 rounded-xl overflow-hidden hover:border-zinc-300 transition-colors"
+              className={`relative bg-white border rounded-xl overflow-hidden transition-colors ${
+                selected.has(product._id)
+                  ? 'border-blue-400 ring-1 ring-blue-200'
+                  : 'border-zinc-200 hover:border-zinc-300'
+              }`}
             >
+              <label className="absolute top-2 left-2 z-10 flex size-6 items-center justify-center rounded-md bg-white/90 shadow-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected.has(product._id)}
+                  onChange={() => toggleOne(product._id)}
+                  aria-label={`Chọn ${product.name}`}
+                  className="size-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                />
+              </label>
               {product.imageUrls.length > 0 && (
                 <div className="flex gap-0.5 h-40 bg-zinc-100">
                   {product.imageUrls.slice(0, 3).map((img, i) => (
@@ -147,7 +248,7 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
                     >
                       <Pencil className="size-3.5" />
                     </Link>
-                    <DeleteProductBtn productId={product._id} />
+                    <DeleteProductBtn productId={product._id} productName={product.name} />
                   </div>
                 </div>
 
@@ -174,6 +275,25 @@ export function CatalogList({ products, accountMap, categories, basePath = '/das
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirm === 'selected'}
+        title={`Xóa ${selected.size} sản phẩm đã chọn?`}
+        description="Các sản phẩm đã chọn sẽ bị xóa khỏi catalog. Hành động này không thể hoàn tác."
+        confirmLabel={`Xóa ${selected.size} sản phẩm`}
+        loading={deleting}
+        onConfirm={() => deleteIds(confirmIds)}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm === 'all'}
+        title="Xóa toàn bộ sản phẩm?"
+        description={`Tất cả ${products.length} sản phẩm trong catalog sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.`}
+        confirmLabel={`Xóa toàn bộ (${products.length})`}
+        loading={deleting}
+        onConfirm={() => deleteIds(confirmIds)}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   )
 }
