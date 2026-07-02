@@ -29,6 +29,9 @@ scripts/intercept/captured_requests.json
 .DS_Store
 Thumbs.db
 
+# Claude Code local settings (máy-cá-nhân, không commit)
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/
