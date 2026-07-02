@@ -190,6 +190,25 @@ function isFacebookNoise(text: string): boolean {
   return false
 }
 
+// feedbackId của FB là base64 của "<type>:<...>". Comment KHÁCH thật luôn là "feedback:…".
+// Jewel thông báo bị bắt nhầm thành comment có id "notification:…:MAIN_SURFACE" — nó KHÔNG
+// tồn tại như một comment trên bài nên replyToCommentViaDOM không bao giờ định vị được →
+// "Reply failed" lặp mỗi vòng poll (còn vì lưu theo facebookCommentId unique-toàn-cục nên
+// bị kẹt "chưa xử lý" ở các post khác). Loại thẳng tại nguồn dựa vào type đã decode.
+// Chỉ loại khi decode ra đúng dạng "<type>:…" mà type != "feedback"; id lạ (không ra dạng
+// đó) thì GIỮ để tránh rớt nhầm comment thật có định dạng id khác.
+function isRealCommentFeedbackId(feedbackId: string): boolean {
+  let decoded: string
+  try {
+    decoded = Buffer.from(feedbackId, 'base64').toString('utf8')
+  } catch {
+    return true
+  }
+  const m = decoded.match(/^([a-z_]+):/i)
+  if (!m) return true
+  return m[1]!.toLowerCase() === 'feedback'
+}
+
 function normalizePostUrl(url: string): string {
   try {
     const parsed = new URL(url)
@@ -310,7 +329,7 @@ export async function fetchPostComments(
   }
 
   const all = Array.from(found.values()).filter((c) => !c.hasOwnerReply)
-  const comments = all.filter((c) => !isFacebookNoise(c.text))
+  const comments = all.filter((c) => isRealCommentFeedbackId(c.feedbackId) && !isFacebookNoise(c.text))
   const dropped = all.length - comments.length
   if (dropped > 0) {
     console.log(`[fetchPostComments] bỏ qua ${dropped} thẻ gợi ý/quảng cáo/thông báo FB (không phải comment)`)
