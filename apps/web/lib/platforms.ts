@@ -31,7 +31,6 @@ export const platforms: PlatformConfig[] = [
       { href: '/catalog', label: 'Catalog', iconName: 'Package' },
       { href: '/autopilot', label: 'Auto-pilot', iconName: 'Zap' },
       { href: '/accounts', label: 'Tài khoản', iconName: 'Users' },
-      { href: '/accounts-clone', label: 'Tài khoản (Clone)', iconName: 'Users' },
       { href: '/logs', label: 'Logs', iconName: 'ScrollText' },
     ],
   },
